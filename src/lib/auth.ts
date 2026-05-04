@@ -3,18 +3,19 @@ import { createHmac } from "crypto";
 
 const SESSION_COOKIE = "kama_session";
 
-const SECRET = process.env.SESSION_SECRET;
-if (!SECRET) {
-  throw new Error("SESSION_SECRET environment variable is required (see .env.example)");
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} environment variable is required (see .env.example)`);
+  }
+  return value;
 }
+
+const SECRET: string = requireEnv("SESSION_SECRET");
 
 export const TELEGRAM_ID = process.env.OWNER_TELEGRAM_ID ?? "";
 
-const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD;
-if (!DASHBOARD_PASSWORD) {
-  throw new Error("DASHBOARD_PASSWORD environment variable is required (see .env.example)");
-}
-export const DEFAULT_PASSWORD = DASHBOARD_PASSWORD;
+export const DEFAULT_PASSWORD: string = requireEnv("DASHBOARD_PASSWORD");
 
 function sign(value: string): string {
   const hmac = createHmac("sha256", SECRET);
