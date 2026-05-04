@@ -1,0 +1,58 @@
+# dependencies
+node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# build outputs
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# coverage / testing
+/coverage
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.pem
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# dotfile dump when $HOME points at the project directory
+.config/
+.npm/
+.cache/
+.local/
+.profile
+.bashrc
+.bash_history
+.bash_logout
+.wget-hsts
+.viminfo
+.lesshst
+.pm2/
+
+# vercel
+.vercel
