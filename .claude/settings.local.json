@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp /var/www/kama-next/Нау*.pdf /tmp/learning_guide.pdf)",
+      "Read(//tmp/**)"
+    ]
+  }
+}
