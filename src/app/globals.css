@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #f8f8f8;
+  --card-border: #e5e5e5;
+  --surface: #fafafa;
+  --surface-2: #f3f3f3;
+  --muted: #737373;
+  --muted-bg: #f5f5f5;
+  --accent: #000000;
+  --accent-fg: #ffffff;
+  --destructive: #dc2626;
+  --input-border: #d4d4d4;
+  --ring: #000000;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-pill: 999px;
+
+  --shadow-soft: 0 1px 2px rgba(0,0,0,0.04), 0 6px 24px -8px rgba(0,0,0,0.06);
+  --shadow-pop: 0 2px 4px rgba(0,0,0,0.06), 0 12px 40px -12px rgba(0,0,0,0.12);
+}
+
+.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #0a0a0a;
+  --card-border: #1a1a1a;
+  --surface: #0d0d0d;
+  --surface-2: #141414;
+  --muted: #737373;
+  --muted-bg: #111111;
+  --accent: #ffffff;
+  --accent-fg: #000000;
+  --destructive: #ef4444;
+  --input-border: #262626;
+  --ring: #ffffff;
+
+  --shadow-soft: 0 1px 2px rgba(0,0,0,0.4), 0 6px 24px -8px rgba(0,0,0,0.5);
+  --shadow-pop: 0 2px 4px rgba(0,0,0,0.5), 0 12px 40px -12px rgba(0,0,0,0.7);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  transition: background 0.2s, color 0.2s;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
+::selection { background: var(--foreground); color: var(--background); }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.animate-fade-in { animation: fadeIn 0.3s ease both; }
+.animate-slide-up { animation: slideUp 0.5s ease both; }
+.animate-pulse-dot { animation: pulse-dot 2s infinite; }
+
+.shadow-soft { box-shadow: var(--shadow-soft); }
+.shadow-pop { box-shadow: var(--shadow-pop); }
+.surface { background: var(--surface); }
+.surface-2 { background: var(--surface-2); }
+
+@keyframes accordion-down {
+  from { height: 0; }
+  to { height: var(--radix-accordion-content-height); }
+}
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); }
+  to { height: 0; }
+}
+.animate-accordion-down { animation: accordion-down 0.2s ease-out; }
+.animate-accordion-up { animation: accordion-up 0.2s ease-out; }
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+}
+.marquee-group {
+  display: flex;
+  flex-shrink: 0;
+}
