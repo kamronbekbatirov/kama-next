@@ -80,8 +80,7 @@ export async function DELETE(req: Request) {
     await auth();
     const { id } = await req.json();
     if (!id) return Response.json({ error: "id required" }, { status: 400 });
-    // Disallow deleting builtins to keep prayer/habit DB rows in sync
-    await query("DELETE FROM habit_defs WHERE id = $1 AND builtin = FALSE", [id]);
+    await query("DELETE FROM habit_defs WHERE id = $1", [id]);
     return Response.json({ ok: true });
   } catch {
     return Response.json({ error: "error" }, { status: 500 });
