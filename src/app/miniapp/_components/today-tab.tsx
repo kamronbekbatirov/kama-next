@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Plus, RotateCcw, X, Check } from "lucide-react";
+import { Pencil, Plus, RotateCcw, X, Check, Zap, BookOpen, Target, Briefcase } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -12,11 +12,43 @@ import {
   PRESET_ICONS, PRAYER_IDS,
   type HabitsRow, type ScheduleBlock, type HabitDef,
 } from "./_shared";
-import { SectionHeader, Pill, IconButton, EmptyState } from "./dashboard-ui";
+import { SectionHeader, Pill, IconButton, StatBlock, EmptyState } from "./dashboard-ui";
 
 interface ScheduleRow { id: string; start_min: number; end_min: number; label: string; icon: string; position: number; }
 
-export function TodayTab() {
+export type TodayTargetTab = "tasks" | "learn" | "jobs" | "budget" | "journal";
+
+type UpNextKind = "todo" | "review" | "goal" | "job";
+type Severity = "overdue" | "today" | "soon";
+interface UpNextItem {
+  kind: UpNextKind;
+  id: string;
+  text: string;
+  sublabel?: string;
+  severity: Severity;
+}
+interface OverviewStats {
+  balance: number;
+  monthlySpend: number;
+  runwayDays: number | null;
+  activeTodos: number;
+  interviewsAndOffers: number;
+  prayerStreak: number;
+  habitStreak: number;
+}
+
+const KIND_ICON = {
+  todo:   <Zap className="h-3.5 w-3.5" />,
+  review: <BookOpen className="h-3.5 w-3.5" />,
+  goal:   <Target className="h-3.5 w-3.5" />,
+  job:    <Briefcase className="h-3.5 w-3.5" />,
+} as const;
+
+const KIND_TO_TAB: Record<UpNextKind, TodayTargetTab> = {
+  todo: "tasks", review: "learn", goal: "learn", job: "jobs",
+};
+
+export function TodayTab({ onNavigate }: { onNavigate?: (tab: TodayTargetTab) => void } = {}) {
   const { t } = useLang();
   const d = t.dash.today;
 
@@ -25,9 +57,9 @@ export function TodayTab() {
   const [customDay, setCustomDay] = useState<Record<string, boolean>>({});
   const [schedule, setSchedule]   = useState<ScheduleBlock[]>([]);
   const [habitDefs, setHabitDefs] = useState<HabitDef[]>([]);
+  const [overview, setOverview]   = useState<{ upNext: UpNextItem[]; stats: OverviewStats } | null>(null);
 
   const [editSched, setEditSched] = useState(false);
-  const [editHabits, setEditHabits] = useState(false);
   const [newBlock, setNewBlock] = useState({ label: "", start: "", end: "", icon: "📅" });
   const [newHabit, setNewHabit] = useState("");
   const [iconPickerFor, setIconPickerFor] = useState<string | null>(null);
@@ -53,6 +85,9 @@ export function TodayTab() {
     });
     api("/api/dashboard/habit-defs").then(rows => {
       if (Array.isArray(rows)) setHabitDefs(rows);
+    });
+    api("/api/dashboard/today-overview").then(data => {
+      if (data && !data.error) setOverview(data);
     });
   }, []);
 
@@ -124,9 +159,12 @@ export function TodayTab() {
     }
     setNewHabit("");
   };
-  const updateHabit = (id: string, label: string) => {
+  const renameHabit = (id: string, label: string) => {
     setHabitDefs(habitDefs.map(h => h.id === id ? { ...h, label } : h));
-    jPatch("/api/dashboard/habit-defs", { id, label });
+  };
+  const persistHabitLabel = (id: string, label: string) => {
+    if (!label.trim()) return;
+    jPatch("/api/dashboard/habit-defs", { id, label: label.trim() });
   };
   const removeHabit = async (id: string) => {
     setHabitDefs(habitDefs.filter(h => h.id !== id));
@@ -180,6 +218,9 @@ export function TodayTab() {
           </div>
         )}
       </Card>
+
+      {/* Up Next + Stats */}
+      <UpNextSection overview={overview} onNavigate={onNavigate} labels={d.upNext} />
 
       {/* Schedule */}
       <section>
@@ -372,90 +413,233 @@ export function TodayTab() {
         <SectionHeader
           eyebrow={d.habits}
           trailing={
-            <>
-              <span className="text-xs tabular-nums font-semibold text-[var(--muted)]">
-                {habitsDone}<span className="text-[var(--card-border)]">/{habitDefs.length}</span>
-              </span>
-              <Pill size="sm" active={editHabits} onClick={() => setEditHabits(v => !v)}>
-                <Pencil className="h-3 w-3" />
-                {editHabits ? d.closeEdit : d.editHabits}
-              </Pill>
-            </>
+            <span className="text-xs tabular-nums font-semibold text-[var(--muted)]">
+              {habitsDone}<span className="text-[var(--card-border)]">/{habitDefs.length}</span>
+            </span>
           }
         />
 
-        {editHabits && (
-          <Card className="mb-3 p-3 flex gap-2">
-            <Input
-              value={newHabit}
-              onChange={e => setNewHabit(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addHabit()}
-              placeholder={d.habitLabelPh}
-              className="h-9"
-            />
-            <button
-              onClick={addHabit}
-              className="rounded-xl bg-[var(--foreground)] text-[var(--background)] text-xs font-semibold px-4 hover:opacity-85 transition-opacity shrink-0 flex items-center gap-1"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          </Card>
-        )}
-
         <Card className="p-3">
-          {habitDefs.length === 0 ? (
-            <EmptyState title={d.habits} hint={d.addHabit} />
+          <div className="flex flex-col gap-1">
+            {habitDefs.map((hab, idx) => {
+              const checked = hab.builtin ? !!habits[hab.id as keyof HabitsRow] : !!customDay[hab.id];
+              return (
+                <div key={hab.id}>
+                  {idx > 0 && <Separator className="my-1" />}
+                  <div className="flex items-center gap-3 py-2 group">
+                    <button
+                      onClick={() => hab.builtin ? toggleBuiltin(hab.id) : toggleCustom(hab.id)}
+                      className={[
+                        "w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer",
+                        checked
+                          ? "bg-[var(--foreground)] border-[var(--foreground)]"
+                          : "border-[var(--card-border)] hover:border-[var(--foreground)]/40",
+                      ].join(" ")}
+                    >
+                      {checked && <Check className="h-3 w-3 text-[var(--background)]" strokeWidth={3} />}
+                    </button>
+                    <input
+                      value={hab.label}
+                      onChange={e => renameHabit(hab.id, e.target.value)}
+                      onBlur={e => persistHabitLabel(hab.id, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+                      }}
+                      className={[
+                        "text-sm flex-1 bg-transparent outline-none transition-all",
+                        "border-0 focus:bg-[var(--surface-2)] rounded-md px-1 -mx-1",
+                        checked ? "line-through text-[var(--muted)]" : "",
+                      ].join(" ")}
+                      aria-label="habit label"
+                    />
+                    <IconButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => removeHabit(hab.id)}
+                      className="opacity-40 hover:opacity-100 hover:text-red-500"
+                      aria-label="remove habit"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </IconButton>
+                  </div>
+                </div>
+              );
+            })}
+
+            {habitDefs.length > 0 && <Separator className="my-1" />}
+
+            <div className="flex items-center gap-2 py-1.5">
+              <button
+                onClick={addHabit}
+                disabled={!newHabit.trim()}
+                className={[
+                  "w-5 h-5 rounded-md border border-dashed flex items-center justify-center shrink-0 transition-all",
+                  newHabit.trim()
+                    ? "border-[var(--foreground)]/60 text-[var(--foreground)] cursor-pointer hover:bg-[var(--surface-2)]"
+                    : "border-[var(--card-border)] text-[var(--muted)] cursor-not-allowed",
+                ].join(" ")}
+                aria-label="add habit"
+              >
+                <Plus className="h-3 w-3" strokeWidth={3} />
+              </button>
+              <Input
+                value={newHabit}
+                onChange={e => setNewHabit(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && addHabit()}
+                placeholder={d.habitLabelPh}
+                className="h-8 text-sm border-0 bg-transparent px-0 focus-visible:ring-0"
+              />
+            </div>
+          </div>
+        </Card>
+      </section>
+    </div>
+  );
+}
+
+function fmtBalance(amount: number): string {
+  const abs = Math.abs(amount);
+  if (abs >= 1000) return `£${(amount / 1000).toFixed(1)}k`;
+  return `£${Math.round(amount)}`;
+}
+
+interface UpNextLabels {
+  title: string;
+  empty: string;
+  overdue: string;
+  due: string;
+  balance: string;
+  runway: string;
+  todo: string;
+  interview: string;
+  streak: string;
+}
+
+function UpNextSection({
+  overview,
+  onNavigate,
+  labels,
+}: {
+  overview: { upNext: UpNextItem[]; stats: OverviewStats } | null;
+  onNavigate?: (tab: TodayTargetTab) => void;
+  labels: UpNextLabels;
+}) {
+  if (!overview) {
+    return (
+      <section className="flex flex-col gap-3">
+        <Card className="p-4">
+          <div className="flex flex-col gap-2 animate-pulse">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="h-8 rounded-lg bg-[var(--muted-bg)]" />
+            ))}
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="grid grid-cols-4 gap-3">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="h-12 rounded-lg bg-[var(--muted-bg)] animate-pulse" />
+            ))}
+          </div>
+        </Card>
+      </section>
+    );
+  }
+
+  const { upNext, stats } = overview;
+  const maxStreak = Math.max(stats.prayerStreak, stats.habitStreak);
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div>
+        <SectionHeader eyebrow={labels.title} className="mb-2" />
+        <Card className="p-2">
+          {upNext.length === 0 ? (
+            <EmptyState title={labels.empty} className="py-6" />
           ) : (
-            <div className="flex flex-col gap-1">
-              {habitDefs.map((hab, idx) => {
-                const checked = hab.builtin ? !!habits[hab.id as keyof HabitsRow] : !!customDay[hab.id];
+            <div className="flex flex-col">
+              {upNext.map((item, idx) => {
+                const sevColor =
+                  item.severity === "overdue" ? "border-l-rose-500"
+                  : item.severity === "today" ? "border-l-amber-500"
+                  : "border-l-transparent";
                 return (
-                  <div key={hab.id}>
-                    {idx > 0 && <Separator className="my-1" />}
-                    <div className="flex items-center gap-3 py-2">
-                      {editHabits ? (
-                        <>
-                          <Input
-                            value={hab.label}
-                            onChange={e => updateHabit(hab.id, e.target.value)}
-                            className="h-8 text-xs"
-                          />
-                          {!hab.builtin && (
-                            <IconButton size="sm" variant="ghost" onClick={() => removeHabit(hab.id)} className="hover:text-red-500">
-                              <X className="h-3.5 w-3.5" />
-                            </IconButton>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => hab.builtin ? toggleBuiltin(hab.id) : toggleCustom(hab.id)}
-                            className={[
-                              "w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer",
-                              checked
-                                ? "bg-[var(--foreground)] border-[var(--foreground)]"
-                                : "border-[var(--card-border)] hover:border-[var(--foreground)]/40",
-                            ].join(" ")}
-                          >
-                            {checked && <Check className="h-3 w-3 text-[var(--background)]" strokeWidth={3} />}
-                          </button>
-                          <span className={[
-                            "text-sm flex-1 transition-all",
-                            checked ? "line-through text-[var(--muted)]" : "",
-                          ].join(" ")}>
-                            {hab.label}
-                          </span>
-                        </>
+                  <button
+                    key={item.id}
+                    onClick={() => onNavigate?.(KIND_TO_TAB[item.kind])}
+                    className={[
+                      "flex items-center gap-3 px-3 py-2.5 text-left rounded-lg",
+                      "hover:bg-[var(--surface-2)] transition-colors cursor-pointer",
+                      "border-l-2", sevColor,
+                      idx > 0 ? "mt-0.5" : "",
+                    ].join(" ")}
+                  >
+                    <span className="shrink-0 text-[var(--muted)]">
+                      {KIND_ICON[item.kind]}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{item.text}</div>
+                      {item.sublabel && (
+                        <div className="text-[10px] uppercase tracking-wide text-[var(--muted)] truncate">
+                          {item.sublabel}
+                        </div>
                       )}
                     </div>
-                  </div>
+                    {item.severity === "overdue" && (
+                      <span className="text-[10px] font-semibold uppercase text-rose-500 shrink-0">
+                        {labels.overdue}
+                      </span>
+                    )}
+                    {item.severity === "today" && (
+                      <span className="text-[10px] font-semibold uppercase text-amber-500 shrink-0">
+                        {labels.due}
+                      </span>
+                    )}
+                  </button>
                 );
               })}
             </div>
           )}
         </Card>
-      </section>
-    </div>
+      </div>
+
+      <Card className="p-4">
+        <div className="grid grid-cols-4 gap-3">
+          <button
+            onClick={() => onNavigate?.("budget")}
+            className="text-left cursor-pointer hover:opacity-80 transition-opacity"
+          >
+            <StatBlock
+              value={fmtBalance(stats.balance)}
+              label={labels.balance}
+              hint={stats.runwayDays !== null ? `${labels.runway} ${stats.runwayDays}d` : undefined}
+              tone={stats.runwayDays !== null && stats.runwayDays < 30 ? "danger" : "neutral"}
+            />
+          </button>
+          <button
+            onClick={() => onNavigate?.("tasks")}
+            className="text-left cursor-pointer hover:opacity-80 transition-opacity"
+          >
+            <StatBlock value={stats.activeTodos} label={labels.todo} />
+          </button>
+          <button
+            onClick={() => onNavigate?.("jobs")}
+            className="text-left cursor-pointer hover:opacity-80 transition-opacity"
+          >
+            <StatBlock
+              value={stats.interviewsAndOffers}
+              label={labels.interview}
+              tone={stats.interviewsAndOffers > 0 ? "success" : "neutral"}
+            />
+          </button>
+          <div>
+            <StatBlock
+              value={maxStreak > 0 ? `${maxStreak}🔥` : "0"}
+              label={labels.streak}
+            />
+          </div>
+        </div>
+      </Card>
+    </section>
   );
 }
 

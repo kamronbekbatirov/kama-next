@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Clock, CheckCircle2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { useLang } from "@/components/providers";
 import { learnApi } from "./api";
 import type { ReviewQueueItem } from "./types";
@@ -75,42 +74,6 @@ export function ProtocolPane() {
         </div>
       </div>
 
-      {/* What doesn't work */}
-      <div>
-        <div className="text-[10px] uppercase tracking-widest text-[var(--muted)] mb-2 px-1 flex items-center gap-1">
-          <AlertCircle className="h-3 w-3" />
-          {l.protocol.antiTitle}
-        </div>
-        <Accordion type="multiple">
-          {l.protocol.antipatterns.map((a: { name: string; reason: string }, i: number) => (
-            <AccordionItem key={i} value={String(i)}>
-              <AccordionTrigger>
-                <span className="text-sm">{a.name}</span>
-              </AccordionTrigger>
-              <AccordionContent>
-                <div className="text-xs text-[var(--muted)] leading-relaxed">{a.reason}</div>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      </div>
-
-      {/* Golden rules */}
-      <div>
-        <div className="text-[10px] uppercase tracking-widest text-[var(--muted)] mb-2 px-1">
-          {l.protocol.goldenTitle}
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {l.protocol.golden.map((g: { tag: string; rule: string }, i: number) => (
-            <Card key={i} className="p-3">
-              <Badge variant="outline" className="mb-1.5">
-                {g.tag}
-              </Badge>
-              <div className="text-xs leading-relaxed">{g.rule}</div>
-            </Card>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
