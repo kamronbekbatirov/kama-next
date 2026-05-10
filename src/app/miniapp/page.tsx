@@ -72,7 +72,7 @@ export default function DashboardPage() {
         className="flex-1 overflow-auto px-5"
         style={{ paddingBottom: "calc(96px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))" }}
       >
-        {tab === "today"   && <TodayTab />}
+        {tab === "today"   && <TodayTab onNavigate={setTab} />}
         {tab === "tasks"   && <TasksTab />}
         {tab === "learn"   && <LearnTab />}
         {tab === "jobs"    && <JobsTab />}

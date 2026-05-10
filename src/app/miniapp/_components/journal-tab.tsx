@@ -9,7 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useLang } from "@/components/providers";
 import {
   api, jPost, jPatch, jDel, today, getLast,
-  PRAYER_IDS, BUILTIN_IDS,
+  PRAYER_IDS,
   type DailyLog, type HabitsRow, type Note,
 } from "./_shared";
 import { SectionHeader, EmptyState, SoftCard, IconButton, StatBlock } from "./dashboard-ui";
@@ -262,142 +262,218 @@ function NotesContent() {
 }
 
 // ─── HISTORY ─────────────────────────────────────────────────────────────────
+interface HabitDef { id: string; label: string; builtin: boolean; position: number; }
+interface CustomCompletion { date: string; habit_id: string; done: boolean; }
+interface HistoryData {
+  habits: HabitsRow[];
+  logs: { date: string }[];
+  defs: HabitDef[];
+  customCompletions: CustomCompletion[];
+}
+
 function HistoryContent() {
   const { t } = useLang();
   const d = t.dash;
-  const [data, setData] = useState<{ habits: HabitsRow[]; logs: { date: string }[] } | null>(null);
+  const h = d.history;
+  const [data, setData] = useState<HistoryData | null>(null);
 
   useEffect(() => {
     api("/api/dashboard/history?days=14").then(r => { if (!r.error) setData(r); });
   }, []);
 
   const days = getLast(14);
-  const habitsMap = Object.fromEntries((data?.habits ?? []).map(h => [h.date, h]));
-  const logsSet   = new Set((data?.logs ?? []).map(l => l.date));
+  const habitsMap = new Map<string, HabitsRow>(
+    (data?.habits ?? []).map(h => [String(h.date).slice(0, 10), h]),
+  );
+  const customMap = new Map<string, boolean>();
+  for (const c of data?.customCompletions ?? []) {
+    customMap.set(`${c.date}::${c.habit_id}`, !!c.done);
+  }
+  const logsSet = new Set((data?.logs ?? []).map(l => String(l.date).slice(0, 10)));
 
-  const computeStreak = (key: keyof HabitsRow) => {
+  const isDone = (def: HabitDef, date: string): boolean =>
+    def.builtin
+      ? !!(habitsMap.get(date) as Record<string, boolean> | undefined)?.[def.id]
+      : !!customMap.get(`${date}::${def.id}`);
+
+  const computeStreak = (predicate: (date: string) => boolean) => {
     let streak = 0;
     for (let i = days.length - 1; i >= 0; i--) {
-      if (habitsMap[days[i]]?.[key]) streak++;
+      if (predicate(days[i])) streak++;
       else break;
     }
     return streak;
   };
 
-  const prayerStreak = Math.min(...PRAYER_IDS.map(k => computeStreak(k)));
-  const habitStreak  = Math.min(...BUILTIN_IDS.map(k => computeStreak(k)));
+  const allPrayersDone = (date: string) =>
+    PRAYER_IDS.every(k => !!(habitsMap.get(date) as Record<string, boolean> | undefined)?.[k]);
+
+  const defs = (data?.defs ?? []).slice().sort((a, b) =>
+    a.builtin === b.builtin ? a.position - b.position : a.builtin ? -1 : 1,
+  );
+
+  const allHabitsDone = (date: string) =>
+    defs.length > 0 && defs.every(def => isDone(def, date));
+
+  const prayerStreak = data ? computeStreak(allPrayersDone) : 0;
+  const habitStreak  = data && defs.length > 0 ? computeStreak(allHabitsDone) : 0;
   const logsCount    = days.filter(dt => logsSet.has(dt)).length;
 
-  const ROWS: { key: keyof HabitsRow; label: string }[] = [
-    ...PRAYER_IDS.map(k => ({ key: k as keyof HabitsRow, label: d.today.prayerNames[k] })),
-    ...BUILTIN_IDS.map((k, i) => ({ key: k as keyof HabitsRow, label: d.today.defaultHabits[i] ?? k })),
-  ];
+  const totalHabits  = defs.length;
+  const totalPrayers = 5;
+
+  const Heatmap = (
+    <div className="overflow-x-auto -mx-2 px-2">
+      <table className="w-full" style={{ tableLayout: "fixed" }}>
+        <thead>
+          <tr>
+            <td className="w-24" />
+            {days.map(dt => {
+              const dayNum = new Date(dt).getDate();
+              const isToday = dt === today();
+              return (
+                <td key={dt} className="text-center pb-2">
+                  <div className={[
+                    "text-[10px] tabular-nums font-medium",
+                    isToday ? "text-[var(--foreground)]" : "text-[var(--muted)]",
+                  ].join(" ")}>
+                    {dayNum}
+                  </div>
+                </td>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {PRAYER_IDS.map(k => (
+            <tr key={`p_${k}`}>
+              <td className="text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 py-1 truncate">
+                {d.today.prayerNames[k]}
+              </td>
+              {days.map(dt => {
+                const done = !!(habitsMap.get(dt) as unknown as Record<string, boolean> | undefined)?.[k];
+                return (
+                  <td key={dt} className="text-center py-0.5">
+                    <div className={[
+                      "w-3 h-3 mx-auto rounded-[3px] transition-all",
+                      done ? "bg-[var(--foreground)]" : "bg-[var(--muted-bg)]",
+                    ].join(" ")} />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+          {defs.map((def, idx) => (
+            <tr key={`h_${def.id}`}>
+              <td className={[
+                "text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 py-1 truncate",
+                idx === 0 ? "pt-3" : "",
+              ].join(" ")}>{def.label || def.id}</td>
+              {days.map(dt => {
+                const done = isDone(def, dt);
+                return (
+                  <td key={dt} className="text-center py-0.5">
+                    <div className={[
+                      "w-3 h-3 mx-auto rounded-[3px] transition-all",
+                      done ? "bg-[var(--foreground)]" : "bg-[var(--muted-bg)]",
+                    ].join(" ")} />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+          <tr>
+            <td className="text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 pt-3">
+              {h.log}
+            </td>
+            {days.map(dt => (
+              <td key={dt} className="text-center pt-2">
+                <div className={[
+                  "w-3 h-3 mx-auto rounded-[3px] border transition-all",
+                  logsSet.has(dt)
+                    ? "bg-[var(--foreground)] border-[var(--foreground)]"
+                    : "border-[var(--card-border)]",
+                ].join(" ")} />
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Streak cards */}
       <Card className="p-5">
         <div className="grid grid-cols-3 gap-3">
-          <StatBlock value={prayerStreak} label={`${d.today.prayers} streak`} hint={`${prayerStreak === 1 ? "day" : "days"}`} />
-          <StatBlock value={habitStreak}  label={`${d.today.habits} streak`}  hint={`${habitStreak === 1 ? "day" : "days"}`} />
-          <StatBlock value={`${logsCount}/14`} label="logs" />
+          <StatBlock
+            value={prayerStreak}
+            label={h.prayerStreak}
+            hint={prayerStreak === 1 ? h.day : h.days}
+          />
+          <StatBlock
+            value={habitStreak}
+            label={h.habitStreak}
+            hint={habitStreak === 1 ? h.day : h.days}
+          />
+          <StatBlock value={`${logsCount}/14`} label={h.logsLabel} />
         </div>
       </Card>
 
-      {/* Habit grid */}
       <Card className="p-4">
-        <SectionHeader eyebrow="Last 14 days" className="mb-3" />
+        <SectionHeader eyebrow={h.last14} className="mb-3" />
         {!data ? (
-          <div className="text-xs text-[var(--muted)] text-center py-6 animate-pulse">Loading...</div>
+          <HeatmapSkeleton />
         ) : (
-          <div className="overflow-x-auto -mx-2 px-2">
-            <table className="w-full" style={{ tableLayout: "fixed" }}>
-              <thead>
-                <tr>
-                  <td className="w-20" />
-                  {days.map(dt => {
-                    const dayNum = new Date(dt).getDate();
-                    const isToday = dt === today();
-                    return (
-                      <td key={dt} className="text-center pb-2">
-                        <div className={[
-                          "text-[10px] tabular-nums font-medium",
-                          isToday ? "text-[var(--foreground)]" : "text-[var(--muted)]",
-                        ].join(" ")}>
-                          {dayNum}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {ROWS.map(({ key, label }, idx) => (
-                  <tr key={key}>
-                    <td className={[
-                      "text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 py-1 truncate",
-                      idx === PRAYER_IDS.length ? "pt-3" : "",
-                    ].join(" ")}>{label}</td>
-                    {days.map(dt => {
-                      const done = !!habitsMap[dt]?.[key];
-                      return (
-                        <td key={dt} className="text-center py-0.5">
-                          <div className={[
-                            "w-3 h-3 mx-auto rounded-[3px] transition-all",
-                            done ? "bg-[var(--foreground)]" : "bg-[var(--muted-bg)]",
-                          ].join(" ")} />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-                <tr>
-                  <td className="text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 pt-3">Log</td>
-                  {days.map(dt => (
-                    <td key={dt} className="text-center pt-2">
-                      <div className={[
-                        "w-3 h-3 mx-auto rounded-[3px] border transition-all",
-                        logsSet.has(dt)
-                          ? "bg-[var(--foreground)] border-[var(--foreground)]"
-                          : "border-[var(--card-border)]",
-                      ].join(" ")} />
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          Heatmap
         )}
       </Card>
 
-      {/* Last 7 days summary */}
       <section>
-        <SectionHeader eyebrow="Last 7 days" />
+        <SectionHeader eyebrow={h.last7} />
         <Card className="p-2">
           <div className="flex flex-col">
             {days.slice(-7).reverse().map((dt, idx) => {
-              const h = habitsMap[dt];
-              const pDone = h ? PRAYER_IDS.filter(k => h[k]).length : 0;
-              const hDone = h ? BUILTIN_IDS.filter(k => h[k]).length : 0;
+              const habitsRow = habitsMap.get(dt);
+              const pDone = habitsRow
+                ? PRAYER_IDS.filter(k => (habitsRow as unknown as Record<string, boolean>)[k]).length
+                : 0;
+              const hDone = defs.filter(def => isDone(def, dt)).length;
               const hasLog = logsSet.has(dt);
-              const dateLabel = new Date(dt).toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "short" });
+              const dateLabel = new Date(dt).toLocaleDateString("ru-RU", {
+                weekday: "short", day: "numeric", month: "short",
+              });
+              const isToday = dt === today();
               return (
                 <div
                   key={dt}
                   className={[
                     "flex items-center gap-3 py-2.5 px-2 rounded-xl",
                     idx > 0 ? "border-t border-[var(--card-border)]" : "",
+                    isToday ? "bg-[var(--surface-2)]" : "",
                   ].join(" ")}
                 >
                   <div className="text-xs font-medium w-28 shrink-0">{dateLabel}</div>
-                  <div className="flex gap-3 flex-1 text-xs tabular-nums">
-                    <span className={pDone === 5 ? "" : pDone === 0 ? "text-[var(--muted)]" : "text-yellow-500"}>
-                      ☽ <span className="font-semibold">{pDone}/5</span>
+                  <div className="flex gap-4 flex-1 text-xs tabular-nums">
+                    <span className={
+                      pDone === totalPrayers ? "text-emerald-500"
+                      : pDone === 0 ? "text-[var(--muted)]"
+                      : "text-[var(--foreground)]"
+                    }>
+                      ☽ <span className="font-semibold">{pDone}</span>
+                      <span className="text-[var(--muted)]">/{totalPrayers}</span>
                     </span>
-                    <span className={hDone >= 4 ? "" : hDone === 0 ? "text-[var(--muted)]" : "text-yellow-500"}>
-                      ✓ <span className="font-semibold">{hDone}/5</span>
-                    </span>
-                    {hasLog && <span className="text-[var(--muted)]">○ log</span>}
+                    {totalHabits > 0 && (
+                      <span className={
+                        hDone === totalHabits ? "text-emerald-500"
+                        : hDone === 0 ? "text-[var(--muted)]"
+                        : "text-[var(--foreground)]"
+                      }>
+                        ✓ <span className="font-semibold">{hDone}</span>
+                        <span className="text-[var(--muted)]">/{totalHabits}</span>
+                      </span>
+                    )}
+                    {hasLog && <span className="text-[var(--muted)]">○ {h.log}</span>}
                   </div>
                 </div>
               );
@@ -405,6 +481,32 @@ function HistoryContent() {
           </div>
         </Card>
       </section>
+    </div>
+  );
+}
+
+function HeatmapSkeleton() {
+  return (
+    <div className="overflow-x-auto -mx-2 px-2">
+      <table className="w-full" style={{ tableLayout: "fixed" }}>
+        <tbody>
+          {Array.from({ length: 7 }).map((_, r) => (
+            <tr key={r}>
+              <td className="w-24 pr-2 py-1">
+                <div className="h-2.5 w-16 rounded-md bg-[var(--muted-bg)] animate-pulse" />
+              </td>
+              {Array.from({ length: 14 }).map((_, c) => (
+                <td key={c} className="text-center py-0.5">
+                  <div
+                    className="w-3 h-3 mx-auto rounded-[3px] bg-[var(--muted-bg)] animate-pulse"
+                    style={{ animationDelay: `${(r + c) * 30}ms` }}
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
