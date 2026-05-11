@@ -16,7 +16,7 @@ export async function GET() {
   try {
     await auth();
     const rows = await query(
-      `SELECT id, text, category, priority, done, done_at, status, position, created_at
+      `SELECT id, text, category, priority, done, done_at, status, position, archived, created_at
        FROM todos
        ORDER BY status, position ASC, created_at DESC`
     );
@@ -53,6 +53,14 @@ export async function PATCH(req: Request) {
     await auth();
     const body = await req.json();
     if (!body.id) return Response.json({ error: "id required" }, { status: 400 });
+
+    if (body.archived !== undefined) {
+      await query(
+        `UPDATE todos SET archived = $1 WHERE id = $2`,
+        [!!body.archived, body.id]
+      );
+      return Response.json({ ok: true });
+    }
 
     if (body.status !== undefined && isStatus(body.status)) {
       const pos = typeof body.position === "number" ? body.position : null;

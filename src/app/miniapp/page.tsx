@@ -23,6 +23,14 @@ const TABS: { id: TabId; icon: string; key: keyof typeof import("@/lib/i18n").tr
   { id: "journal", icon: "📓", key: "journal" },
 ];
 
+const VALID_TABS: ReadonlySet<TabId> = new Set(TABS.map(t => t.id));
+
+function readTabFromHash(): TabId {
+  if (typeof window === "undefined") return "today";
+  const h = window.location.hash.replace(/^#/, "");
+  return VALID_TABS.has(h as TabId) ? (h as TabId) : "today";
+}
+
 export default function DashboardPage() {
   const { t } = useLang();
   const d = t.dash;
@@ -39,6 +47,21 @@ export default function DashboardPage() {
       .catch(() => router.replace("/miniapp/login"))
       .finally(() => setChecking(false));
   }, [router]);
+
+  // Restore active tab from URL hash on mount, and react to back/forward.
+  useEffect(() => {
+    setTab(readTabFromHash());
+    const onHashChange = () => setTab(readTabFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  const switchTab = (id: TabId) => {
+    setTab(id);
+    if (typeof window !== "undefined" && window.location.hash !== `#${id}`) {
+      history.replaceState(null, "", `#${id}`);
+    }
+  };
 
   if (checking) return (
     <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
@@ -89,7 +112,7 @@ export default function DashboardPage() {
           {TABS.map(tb => (
             <button
               key={tb.id}
-              onClick={() => setTab(tb.id)}
+              onClick={() => switchTab(tb.id)}
               aria-label={d.tabs[tb.key]}
               aria-current={tab === tb.id}
               className={[
