@@ -12,6 +12,7 @@ export interface Todo {
   priority: string;
   status: TodoStatus;
   position: number;
+  archived: boolean;
 }
 export const TODO_STATUSES: readonly TodoStatus[] = ["todo", "doing", "done"];
 export interface Application { id: number; company: string; role: string; status: string; notes: string | null; }
