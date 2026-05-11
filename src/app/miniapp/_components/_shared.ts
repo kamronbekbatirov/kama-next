@@ -3,7 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
-export interface Todo { id: number; text: string; done: boolean; category: string; priority: string; }
+export type TodoStatus = "todo" | "doing" | "done";
+export interface Todo {
+  id: number;
+  text: string;
+  done: boolean;
+  category: string;
+  priority: string;
+  status: TodoStatus;
+  position: number;
+}
+export const TODO_STATUSES: readonly TodoStatus[] = ["todo", "doing", "done"];
 export interface Application { id: number; company: string; role: string; status: string; notes: string | null; }
 export interface BudgetEntry { id: number; type: "income" | "expense"; amount: number; category: string | null; description: string | null; date: string; }
 export interface DailyLog { date: string; visa_progress: string|null; what_worked: string|null; tomorrow_task: string|null; workout_pushups: number; workout_plank: number; workout_walk: number; notes: string|null; }

@@ -1,6 +1,12 @@
 import { query } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 
+const VALID_STATUSES = ["todo", "doing", "done"] as const;
+type Status = typeof VALID_STATUSES[number];
+function isStatus(v: unknown): v is Status {
+  return typeof v === "string" && (VALID_STATUSES as readonly string[]).includes(v);
+}
+
 async function auth() {
   const s = await getSession();
   if (!s?.authenticated) throw new Error("unauthorized");
@@ -10,7 +16,9 @@ export async function GET() {
   try {
     await auth();
     const rows = await query(
-      "SELECT * FROM todos ORDER BY done ASC, priority DESC, created_at DESC"
+      `SELECT id, text, category, priority, done, done_at, status, position, created_at
+       FROM todos
+       ORDER BY status, position ASC, created_at DESC`
     );
     return Response.json(rows);
   } catch {
@@ -21,13 +29,21 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     await auth();
-    const { text, category, priority } = await req.json();
+    const { text, category, priority, status } = await req.json();
+    const st: Status = isStatus(status) ? status : "todo";
     const rows = await query(
-      "INSERT INTO todos (text, category, priority) VALUES ($1, $2, $3) RETURNING *",
-      [text, category ?? "general", priority ?? "medium"]
+      `INSERT INTO todos (text, category, priority, status, position, done)
+       VALUES ($1, $2, $3, $4,
+         COALESCE((SELECT MIN(position) - 1 FROM todos WHERE status = $4), 0),
+         $4 = 'done')
+       RETURNING id, text, category, priority, done, done_at, status, position, created_at`,
+      [text, category ?? "general", priority ?? "medium", st]
     );
     return Response.json(rows[0]);
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("todos POST:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }
@@ -36,19 +52,66 @@ export async function PATCH(req: Request) {
   try {
     await auth();
     const body = await req.json();
-    if (body.done !== undefined) {
-      await query(
-        "UPDATE todos SET done = $1, done_at = $2 WHERE id = $3",
-        [body.done, body.done ? new Date() : null, body.id]
-      );
-    } else {
-      await query(
-        "UPDATE todos SET text = $1, category = $2, priority = $3 WHERE id = $4",
-        [body.text, body.category, body.priority, body.id]
-      );
+    if (!body.id) return Response.json({ error: "id required" }, { status: 400 });
+
+    if (body.status !== undefined && isStatus(body.status)) {
+      const pos = typeof body.position === "number" ? body.position : null;
+      if (pos === null) {
+        // Append to the column
+        await query(
+          `UPDATE todos SET
+             status = $2,
+             position = COALESCE((SELECT MAX(position) + 1 FROM todos WHERE status = $2), 0),
+             done = ($2 = 'done'),
+             done_at = CASE WHEN $2 = 'done' AND NOT done THEN NOW()
+                            WHEN $2 <> 'done' THEN NULL
+                            ELSE done_at END
+           WHERE id = $1`,
+          [body.id, body.status]
+        );
+      } else {
+        await query(
+          `UPDATE todos SET
+             status = $2,
+             position = $3,
+             done = ($2 = 'done'),
+             done_at = CASE WHEN $2 = 'done' AND NOT done THEN NOW()
+                            WHEN $2 <> 'done' THEN NULL
+                            ELSE done_at END
+           WHERE id = $1`,
+          [body.id, body.status, pos]
+        );
+      }
+      return Response.json({ ok: true });
     }
+
+    if (body.done !== undefined) {
+      const nextStatus = body.done ? "done" : "todo";
+      await query(
+        `UPDATE todos SET
+           done = $1,
+           done_at = $2,
+           status = $3,
+           position = COALESCE((SELECT MAX(position) + 1 FROM todos WHERE status = $3), 0)
+         WHERE id = $4`,
+        [body.done, body.done ? new Date() : null, nextStatus, body.id]
+      );
+      return Response.json({ ok: true });
+    }
+
+    await query(
+      `UPDATE todos SET
+         text = COALESCE($1, text),
+         category = COALESCE($2, category),
+         priority = COALESCE($3, priority)
+       WHERE id = $4`,
+      [body.text ?? null, body.category ?? null, body.priority ?? null, body.id]
+    );
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("todos PATCH:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }
