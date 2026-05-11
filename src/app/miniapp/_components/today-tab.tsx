@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Plus, RotateCcw, X, Check, Zap, BookOpen, Target, Briefcase } from "lucide-react";
+import { Pencil, Plus, RotateCcw, X, Check } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -12,43 +12,11 @@ import {
   PRESET_ICONS, PRAYER_IDS,
   type HabitsRow, type ScheduleBlock, type HabitDef,
 } from "./_shared";
-import { SectionHeader, Pill, IconButton, StatBlock, EmptyState } from "./dashboard-ui";
+import { SectionHeader, Pill, IconButton } from "./dashboard-ui";
 
 interface ScheduleRow { id: string; start_min: number; end_min: number; label: string; icon: string; position: number; }
 
-export type TodayTargetTab = "tasks" | "learn" | "jobs" | "budget" | "journal";
-
-type UpNextKind = "todo" | "review" | "goal" | "job";
-type Severity = "overdue" | "today" | "soon";
-interface UpNextItem {
-  kind: UpNextKind;
-  id: string;
-  text: string;
-  sublabel?: string;
-  severity: Severity;
-}
-interface OverviewStats {
-  balance: number;
-  monthlySpend: number;
-  runwayDays: number | null;
-  activeTodos: number;
-  interviewsAndOffers: number;
-  prayerStreak: number;
-  habitStreak: number;
-}
-
-const KIND_ICON = {
-  todo:   <Zap className="h-3.5 w-3.5" />,
-  review: <BookOpen className="h-3.5 w-3.5" />,
-  goal:   <Target className="h-3.5 w-3.5" />,
-  job:    <Briefcase className="h-3.5 w-3.5" />,
-} as const;
-
-const KIND_TO_TAB: Record<UpNextKind, TodayTargetTab> = {
-  todo: "tasks", review: "learn", goal: "learn", job: "jobs",
-};
-
-export function TodayTab({ onNavigate }: { onNavigate?: (tab: TodayTargetTab) => void } = {}) {
+export function TodayTab() {
   const { t } = useLang();
   const d = t.dash.today;
 
@@ -57,7 +25,6 @@ export function TodayTab({ onNavigate }: { onNavigate?: (tab: TodayTargetTab) =>
   const [customDay, setCustomDay] = useState<Record<string, boolean>>({});
   const [schedule, setSchedule]   = useState<ScheduleBlock[]>([]);
   const [habitDefs, setHabitDefs] = useState<HabitDef[]>([]);
-  const [overview, setOverview]   = useState<{ upNext: UpNextItem[]; stats: OverviewStats } | null>(null);
 
   const [editSched, setEditSched] = useState(false);
   const [newBlock, setNewBlock] = useState({ label: "", start: "", end: "", icon: "📅" });
@@ -85,9 +52,6 @@ export function TodayTab({ onNavigate }: { onNavigate?: (tab: TodayTargetTab) =>
     });
     api("/api/dashboard/habit-defs").then(rows => {
       if (Array.isArray(rows)) setHabitDefs(rows);
-    });
-    api("/api/dashboard/today-overview").then(data => {
-      if (data && !data.error) setOverview(data);
     });
   }, []);
 
@@ -218,9 +182,6 @@ export function TodayTab({ onNavigate }: { onNavigate?: (tab: TodayTargetTab) =>
           </div>
         )}
       </Card>
-
-      {/* Up Next + Stats */}
-      <UpNextSection overview={overview} onNavigate={onNavigate} labels={d.upNext} />
 
       {/* Schedule */}
       <section>
@@ -494,152 +455,6 @@ export function TodayTab({ onNavigate }: { onNavigate?: (tab: TodayTargetTab) =>
         </Card>
       </section>
     </div>
-  );
-}
-
-function fmtBalance(amount: number): string {
-  const abs = Math.abs(amount);
-  if (abs >= 1000) return `£${(amount / 1000).toFixed(1)}k`;
-  return `£${Math.round(amount)}`;
-}
-
-interface UpNextLabels {
-  title: string;
-  empty: string;
-  overdue: string;
-  due: string;
-  balance: string;
-  runway: string;
-  todo: string;
-  interview: string;
-  streak: string;
-}
-
-function UpNextSection({
-  overview,
-  onNavigate,
-  labels,
-}: {
-  overview: { upNext: UpNextItem[]; stats: OverviewStats } | null;
-  onNavigate?: (tab: TodayTargetTab) => void;
-  labels: UpNextLabels;
-}) {
-  if (!overview) {
-    return (
-      <section className="flex flex-col gap-3">
-        <Card className="p-4">
-          <div className="flex flex-col gap-2 animate-pulse">
-            {[0, 1, 2].map(i => (
-              <div key={i} className="h-8 rounded-lg bg-[var(--muted-bg)]" />
-            ))}
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="grid grid-cols-4 gap-3">
-            {[0, 1, 2, 3].map(i => (
-              <div key={i} className="h-12 rounded-lg bg-[var(--muted-bg)] animate-pulse" />
-            ))}
-          </div>
-        </Card>
-      </section>
-    );
-  }
-
-  const { upNext, stats } = overview;
-  const maxStreak = Math.max(stats.prayerStreak, stats.habitStreak);
-
-  return (
-    <section className="flex flex-col gap-3">
-      <div>
-        <SectionHeader eyebrow={labels.title} className="mb-2" />
-        <Card className="p-2">
-          {upNext.length === 0 ? (
-            <EmptyState title={labels.empty} className="py-6" />
-          ) : (
-            <div className="flex flex-col">
-              {upNext.map((item, idx) => {
-                const sevColor =
-                  item.severity === "overdue" ? "border-l-rose-500"
-                  : item.severity === "today" ? "border-l-amber-500"
-                  : "border-l-transparent";
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => onNavigate?.(KIND_TO_TAB[item.kind])}
-                    className={[
-                      "flex items-center gap-3 px-3 py-2.5 text-left rounded-lg",
-                      "hover:bg-[var(--surface-2)] transition-colors cursor-pointer",
-                      "border-l-2", sevColor,
-                      idx > 0 ? "mt-0.5" : "",
-                    ].join(" ")}
-                  >
-                    <span className="shrink-0 text-[var(--muted)]">
-                      {KIND_ICON[item.kind]}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{item.text}</div>
-                      {item.sublabel && (
-                        <div className="text-[10px] uppercase tracking-wide text-[var(--muted)] truncate">
-                          {item.sublabel}
-                        </div>
-                      )}
-                    </div>
-                    {item.severity === "overdue" && (
-                      <span className="text-[10px] font-semibold uppercase text-rose-500 shrink-0">
-                        {labels.overdue}
-                      </span>
-                    )}
-                    {item.severity === "today" && (
-                      <span className="text-[10px] font-semibold uppercase text-amber-500 shrink-0">
-                        {labels.due}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      <Card className="p-4">
-        <div className="grid grid-cols-4 gap-3">
-          <button
-            onClick={() => onNavigate?.("budget")}
-            className="text-left cursor-pointer hover:opacity-80 transition-opacity"
-          >
-            <StatBlock
-              value={fmtBalance(stats.balance)}
-              label={labels.balance}
-              hint={stats.runwayDays !== null ? `${labels.runway} ${stats.runwayDays}d` : undefined}
-              tone={stats.runwayDays !== null && stats.runwayDays < 30 ? "danger" : "neutral"}
-            />
-          </button>
-          <button
-            onClick={() => onNavigate?.("tasks")}
-            className="text-left cursor-pointer hover:opacity-80 transition-opacity"
-          >
-            <StatBlock value={stats.activeTodos} label={labels.todo} />
-          </button>
-          <button
-            onClick={() => onNavigate?.("jobs")}
-            className="text-left cursor-pointer hover:opacity-80 transition-opacity"
-          >
-            <StatBlock
-              value={stats.interviewsAndOffers}
-              label={labels.interview}
-              tone={stats.interviewsAndOffers > 0 ? "success" : "neutral"}
-            />
-          </button>
-          <div>
-            <StatBlock
-              value={maxStreak > 0 ? `${maxStreak}🔥` : "0"}
-              label={labels.streak}
-            />
-          </div>
-        </div>
-      </Card>
-    </section>
   );
 }
 
