@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Archive, ArchiveRestore, ChevronDown, ChevronRight } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -40,6 +40,7 @@ export function TasksTab() {
   const [editing, setEditing] = useState<Todo | null>(null);
   const [addingTo, setAddingTo] = useState<TodoStatus | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   const load = useCallback(async () => {
     const data = await api("/api/dashboard/todos");
@@ -48,13 +49,16 @@ export function TasksTab() {
   useEffect(() => { load(); }, [load]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 180, tolerance: 8 } }),
   );
+
+  const archived = useMemo(() => todos.filter(t => t.archived), [todos]);
 
   const byStatus = useMemo(() => {
     const map: Record<TodoStatus, Todo[]> = { todo: [], doing: [], done: [] };
     for (const todo of todos) {
+      if (todo.archived) continue;
       const st: TodoStatus = TODO_STATUSES.includes(todo.status) ? todo.status : "todo";
       map[st].push(todo);
     }
@@ -134,6 +138,12 @@ export function TasksTab() {
     await jDel("/api/dashboard/todos", { id });
   };
 
+  const setArchived = async (id: number, archived: boolean) => {
+    setEditing(null);
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, archived } : t));
+    await jPatch("/api/dashboard/todos", { id, archived });
+  };
+
   const activeTodo = activeId ? findTodo(activeId) : null;
 
   return (
@@ -166,6 +176,20 @@ export function TasksTab() {
         </DragOverlay>
       </DndContext>
 
+      <ArchiveSection
+        archived={archived}
+        open={archiveOpen}
+        onToggle={() => setArchiveOpen(v => !v)}
+        labels={{
+          title: d.archive,
+          empty: d.archiveEmpty,
+          restore: d.restoreAction,
+        }}
+        onRestore={(id) => setArchived(id, false)}
+        onCardClick={(todo) => setEditing(todo)}
+        catLabel={(cat) => d.cats[cat as keyof typeof d.cats] ?? cat}
+      />
+
       {addingTo && (
         <AddTodoDialog
           status={addingTo}
@@ -179,8 +203,75 @@ export function TasksTab() {
         onClose={() => setEditing(null)}
         onSaved={async () => { setEditing(null); await load(); }}
         onDeleted={onDelete}
+        onArchive={(id, archived) => setArchived(id, archived)}
       />
     </div>
+  );
+}
+
+function ArchiveSection({
+  archived, open, onToggle, labels, onRestore, onCardClick, catLabel,
+}: {
+  archived: Todo[];
+  open: boolean;
+  onToggle: () => void;
+  labels: { title: string; empty: string; restore: string };
+  onRestore: (id: number) => void;
+  onCardClick: (todo: Todo) => void;
+  catLabel: (cat: string) => string;
+}) {
+  return (
+    <section className="mt-2">
+      <button
+        onClick={onToggle}
+        className={[
+          "w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl",
+          "border border-[var(--card-border)] bg-[var(--card)] hover:bg-[var(--surface-2)]",
+          "text-xs font-semibold text-[var(--muted)] hover:text-[var(--foreground)]",
+          "transition-colors cursor-pointer",
+        ].join(" ")}
+      >
+        <span className="flex items-center gap-2">
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <Archive className="h-3.5 w-3.5" />
+          <span className="uppercase tracking-[0.14em]">{labels.title}</span>
+        </span>
+        <span className="tabular-nums">{archived.length}</span>
+      </button>
+
+      {open && (
+        <div className="mt-2 flex flex-col gap-1.5">
+          {archived.length === 0 ? (
+            <div className="text-[10px] text-center text-[var(--muted)] py-3 italic">
+              {labels.empty}
+            </div>
+          ) : (
+            archived.map(todo => (
+              <div key={todo.id} className="flex items-stretch gap-1.5">
+                <button
+                  onClick={() => onCardClick(todo)}
+                  className="flex-1 text-left cursor-pointer"
+                >
+                  <TodoCard todo={todo} catLabel={catLabel(todo.category)} />
+                </button>
+                <button
+                  onClick={() => onRestore(todo.id)}
+                  className={[
+                    "shrink-0 px-2 rounded-xl border border-[var(--card-border)] bg-[var(--card)]",
+                    "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)]",
+                    "transition-colors cursor-pointer flex items-center justify-center",
+                  ].join(" ")}
+                  aria-label={labels.restore}
+                  title={labels.restore}
+                >
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -262,17 +353,20 @@ function SortableTodoCard({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
+    touchAction: "manipulation" as const,
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <button
-        onClick={onClick}
-        className="w-full text-left"
-        // Avoid intercepting drag — click only fires if drag didn't pass the threshold.
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <TodoCard todo={todo} catLabel={catLabel} />
-      </button>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      className="cursor-grab active:cursor-grabbing select-none"
+    >
+      <TodoCard todo={todo} catLabel={catLabel} />
     </div>
   );
 }
@@ -378,12 +472,13 @@ function AddTodoDialog({
 }
 
 function EditTodoDialog({
-  todo, onClose, onSaved, onDeleted,
+  todo, onClose, onSaved, onDeleted, onArchive,
 }: {
   todo: Todo | null;
   onClose: () => void;
   onSaved: () => void;
   onDeleted: (id: number) => void;
+  onArchive: (id: number, archived: boolean) => void;
 }) {
   const { t } = useLang();
   const d = t.dash.tasks;
@@ -462,8 +557,17 @@ function EditTodoDialog({
           </div>
         </div>
         <DialogFooter>
-          <IconButton size="md" variant="outline" onClick={() => onDeleted(todo.id)} className="mr-auto hover:text-red-500">
+          <IconButton size="md" variant="outline" onClick={() => onDeleted(todo.id)} className="mr-auto hover:text-red-500" aria-label="delete">
             <Trash2 className="h-4 w-4" />
+          </IconButton>
+          <IconButton
+            size="md"
+            variant="outline"
+            onClick={() => onArchive(todo.id, !todo.archived)}
+            aria-label={todo.archived ? d.restoreAction : d.archiveAction}
+            title={todo.archived ? d.restoreAction : d.archiveAction}
+          >
+            {todo.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
           </IconButton>
           <Button variant="ghost" onClick={onClose}>{j.cancel}</Button>
           <Button onClick={save} disabled={!text.trim()}>{j.save}</Button>
