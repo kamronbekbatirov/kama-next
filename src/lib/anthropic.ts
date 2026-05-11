@@ -4,7 +4,7 @@ import { TOOL_DEFINITIONS, executeTool } from "@/lib/anthropic-tools";
 
 export const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-7";
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const MAX_TOOL_ITERATIONS = 10;
 
 const PRAYER_IDS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
