@@ -8,7 +8,6 @@ const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const MAX_TOOL_ITERATIONS = 10;
 
 const PRAYER_IDS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
-const HABIT_IDS  = ["water", "walk", "workout", "breakfast", "quran"] as const;
 
 function fmtMin(m: number) {
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
@@ -19,10 +18,11 @@ interface DashboardSnapshot {
   date: string;
   time: string;
   schedule: { id: string; start_min: number; end_min: number; label: string; icon: string }[];
-  habitsToday: Record<string, boolean | null>;
-  customHabits: { id: string; label: string; done: boolean }[];
-  todos: { id: number; text: string; category: string; priority: string; done: boolean; created_at: string }[];
+  prayersToday: Record<string, boolean>;
+  habitsList: { id: string; label: string; builtin: boolean; done: boolean }[];
+  todos: { id: number; text: string; category: string; priority: string; status: string; created_at: string }[];
   recentlyCompletedTodos: { id: number; text: string; category: string; done_at: string }[];
+  archivedTodos: { id: number; text: string; category: string; priority: string; status: string }[];
   applications: { id: number; company: string; role: string; status: string; notes: string | null }[];
   budget: {
     initialBalance: number;
@@ -45,8 +45,8 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
   const now = new Date();
 
   const [
-    schedule, habitsToday, customHabits, customDoneRows,
-    todos, recentlyCompletedTodos, applications,
+    schedule, habitsToday, habitDefs, customDoneRows,
+    todos, recentlyCompletedTodos, archivedTodos, applications,
     budgetEntries, subs, balanceSetting,
     learnSubjects, learnNodes, learnMethods, recentRecallSessions,
     recentLogs, recentNotes, reviewQueue,
@@ -58,16 +58,23 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       "SELECT * FROM habits WHERE date = $1 LIMIT 1", [dt]
     ),
     query<{ id: string; label: string; builtin: boolean }>(
-      "SELECT id, label, builtin FROM habit_defs WHERE builtin = FALSE ORDER BY position"
+      "SELECT id, label, builtin FROM habit_defs ORDER BY builtin DESC, position"
     ),
     query<{ habit_id: string; done: boolean }>(
       "SELECT habit_id, done FROM habit_custom_completions WHERE date = $1", [dt]
     ),
-    query<{ id: number; text: string; category: string; priority: string; done: boolean; created_at: string }>(
-      "SELECT id, text, category, priority, done, created_at FROM todos WHERE done = FALSE ORDER BY priority DESC, created_at DESC LIMIT 30"
+    query<{ id: number; text: string; category: string; priority: string; status: string; created_at: string }>(
+      `SELECT id, text, category, priority, status, created_at FROM todos
+       WHERE archived = FALSE AND status <> 'done'
+       ORDER BY status, position ASC, created_at DESC LIMIT 40`
     ),
     query<{ id: number; text: string; category: string; done_at: string }>(
-      "SELECT id, text, category, done_at::text AS done_at FROM todos WHERE done = TRUE AND done_at >= NOW() - INTERVAL '7 days' ORDER BY done_at DESC LIMIT 15"
+      `SELECT id, text, category, done_at::text AS done_at FROM todos
+       WHERE status = 'done' AND archived = FALSE AND done_at >= NOW() - INTERVAL '7 days'
+       ORDER BY done_at DESC LIMIT 15`
+    ),
+    query<{ id: number; text: string; category: string; priority: string; status: string }>(
+      "SELECT id, text, category, priority, status FROM todos WHERE archived = TRUE ORDER BY id DESC LIMIT 20"
     ),
     query<{ id: number; company: string; role: string; status: string; notes: string | null }>(
       "SELECT id, company, role, status, notes FROM applications ORDER BY created_at DESC LIMIT 25"
@@ -111,7 +118,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     ),
   ]);
 
-  const habits = habitsToday[0] ?? {};
+  const habitsRow = (habitsToday[0] ?? {}) as Record<string, boolean | null>;
   const customDone = Object.fromEntries(customDoneRows.map(r => [r.habit_id, r.done]));
 
   const initialBalance = Number(balanceSetting[0]?.value ?? 0);
@@ -122,16 +129,30 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     .reduce((s, e) => s + Number(e.amount), 0)
     + subs.filter(x => x.active).reduce((s, x) => s + Number(x.amount), 0);
 
+  const prayersToday = Object.fromEntries(
+    PRAYER_IDS.map(p => [p, !!habitsRow[p]])
+  ) as Record<string, boolean>;
+
+  // habits_list: every entry in habit_defs (the user's actual tracked list),
+  // each annotated with today's completion.
+  const habitsList = habitDefs.map(def => ({
+    id: def.id,
+    label: def.label,
+    builtin: def.builtin,
+    done: def.builtin
+      ? !!habitsRow[def.id]
+      : !!customDone[def.id],
+  }));
+
   return {
     date: dt,
     time: now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }),
     schedule,
-    habitsToday: Object.fromEntries(
-      [...PRAYER_IDS, ...HABIT_IDS].map(k => [k, (habits as Record<string, boolean | null>)[k] ?? null])
-    ),
-    customHabits: customHabits.map(h => ({ id: h.id, label: h.label, done: !!customDone[h.id] })),
+    prayersToday,
+    habitsList,
     todos,
     recentlyCompletedTodos,
+    archivedTodos,
     applications,
     budget: {
       initialBalance,
@@ -151,9 +172,10 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
 }
 
 export function renderContext(snap: DashboardSnapshot): string {
-  const habitMark = (k: string) => snap.habitsToday[k] ? "✓" : "○";
-  const prayersDone = PRAYER_IDS.filter(p => snap.habitsToday[p]).length;
-  const habitsDone  = HABIT_IDS.filter(h => snap.habitsToday[h]).length;
+  const mark = (b: boolean) => b ? "✓" : "○";
+  const prayersDone = PRAYER_IDS.filter(p => snap.prayersToday[p]).length;
+  const tracked     = snap.habitsList.length;
+  const habitsDone  = snap.habitsList.filter(h => h.done).length;
 
   const sections: string[] = [];
 
@@ -166,13 +188,22 @@ ${snap.schedule.length === 0 ? "(empty)" : snap.schedule.map(b =>
   ).join("\n")}`);
 
   sections.push(`# Today's habits
-- Prayers (${prayersDone}/5): ${PRAYER_IDS.map(p => `${p}=${habitMark(p)}`).join(" ")}
-- Builtin habits (${habitsDone}/5): ${HABIT_IDS.map(h => `${h}=${habitMark(h)}`).join(" ")}
-- Custom habits: ${snap.customHabits.length === 0 ? "(none)" : snap.customHabits.map(h => `${h.label}[${h.id}]=${h.done ? "✓" : "○"}`).join(", ")}`);
+- Prayers (${prayersDone}/5): ${PRAYER_IDS.map(p => `${p}=${mark(snap.prayersToday[p])}`).join(" ")}
+- Tracked habits (${habitsDone}/${tracked}): ${tracked === 0
+    ? "(none configured)"
+    : snap.habitsList.map(h => `${h.label}[${h.id}${h.builtin ? "*" : ""}]=${mark(h.done)}`).join(", ")}
+  (* = builtin column; use mark_habit with the id for those, mark_custom_habit otherwise)`);
 
+  // Kanban-grouped active todos
+  const todoCol  = snap.todos.filter(t => t.status === "todo");
+  const doingCol = snap.todos.filter(t => t.status === "doing");
   if (snap.todos.length > 0) {
-    sections.push(`# Active todos (${snap.todos.length})
-${snap.todos.slice(0, 25).map(t => `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}`).join("\n")}`);
+    const fmt = (t: typeof snap.todos[number]) =>
+      `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}`;
+    const blocks: string[] = [`# Active todos (kanban)`];
+    if (todoCol.length > 0)  blocks.push(`## To do (${todoCol.length})\n${todoCol.slice(0, 20).map(fmt).join("\n")}`);
+    if (doingCol.length > 0) blocks.push(`## In progress (${doingCol.length})\n${doingCol.slice(0, 20).map(fmt).join("\n")}`);
+    sections.push(blocks.join("\n"));
   } else {
     sections.push(`# Active todos: (none)`);
   }
@@ -180,6 +211,11 @@ ${snap.todos.slice(0, 25).map(t => `- #${t.id} [${t.priority.toUpperCase()}] [${
   if (snap.recentlyCompletedTodos.length > 0) {
     sections.push(`# Recently completed todos (last 7 days)
 ${snap.recentlyCompletedTodos.slice(0, 10).map(t => `- #${t.id} [${t.category}] ${t.text} (${t.done_at.slice(0, 10)})`).join("\n")}`);
+  }
+
+  if (snap.archivedTodos.length > 0) {
+    sections.push(`# Archived todos (off the board, still recoverable) — ${snap.archivedTodos.length}
+${snap.archivedTodos.slice(0, 15).map(t => `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}`).join("\n")}`);
   }
 
   if (snap.applications.length > 0) {
@@ -280,6 +316,9 @@ You also have TOOLS to MODIFY anything in his dashboard. Use them whenever he as
 
 Tool-use principles:
 - Look up IDs from the snapshot (todos #N, applications #N, schedule [id], etc.).
+- Todos live on a kanban board with three columns: "todo" / "doing" / "done". Moving a card = update_todo with the new status. Marking complete = complete_todo (auto-moves to "done").
+- Tasks Kamronbek wants to keep but not actively work on (months-out items, on-hold ideas) go to the archive via archive_todo. They stay searchable in the snapshot but disappear from the board.
+- Habits: prayers (fajr/dhuhr/asr/maghrib/isha) are always 5 fixed columns — use mark_habit. Other habits come from his habit_defs list (shown under "Tracked habits"); builtin ones (marked with *) also use mark_habit with their column id; non-builtin (custom) use mark_custom_habit with the habit_id string.
 - If the user asks for something modified across multiple items, run multiple tool calls in sequence.
 - After tools succeed, summarise what you did. Don't dump tool output verbatim.
 - If a tool fails, explain why; don't silently retry the same call.
