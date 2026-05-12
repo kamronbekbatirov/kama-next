@@ -8,7 +8,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
   // ─── TODOS ─────────────────────────────────────────────────────────────────
   {
     name: "add_todo",
-    description: "Add a new todo to Kamronbek's task list. Returns the new todo with its id.",
+    description: "Add a new todo to Kamronbek's task list (kanban). Returns the new todo with its id.",
     input_schema: {
       type: "object",
       properties: {
@@ -22,6 +22,11 @@ export const TOOL_DEFINITIONS: Tool[] = [
           type: "string",
           enum: ["high", "medium", "low"],
           description: "Priority. Default 'medium'.",
+        },
+        status: {
+          type: "string",
+          enum: ["todo", "doing", "done"],
+          description: "Kanban column. Default 'todo'.",
         },
       },
       required: ["text"],
@@ -49,7 +54,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
   },
   {
     name: "update_todo",
-    description: "Change text, category, or priority of an existing todo.",
+    description: "Change text, category, priority, or kanban status of an existing todo.",
     input_schema: {
       type: "object",
       properties: {
@@ -57,6 +62,11 @@ export const TOOL_DEFINITIONS: Tool[] = [
         text: { type: "string" },
         category: { type: "string", enum: ["general", "visa", "job", "learning", "personal"] },
         priority: { type: "string", enum: ["high", "medium", "low"] },
+        status: {
+          type: "string",
+          enum: ["todo", "doing", "done"],
+          description: "Move card to this kanban column.",
+        },
       },
       required: ["id"],
     },
@@ -67,6 +77,18 @@ export const TOOL_DEFINITIONS: Tool[] = [
     input_schema: {
       type: "object",
       properties: { id: { type: "integer" } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "archive_todo",
+    description: "Move a todo into the archive (hidden from the kanban board, kept in storage). Use this for tasks that are not deleted but not active either — e.g. things to revisit later.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "integer" },
+        archived: { type: "boolean", description: "true to archive, false to restore. Default true." },
+      },
       required: ["id"],
     },
   },
@@ -222,6 +244,22 @@ export const TOOL_DEFINITIONS: Tool[] = [
         category: { type: "string" },
       },
       required: ["type", "amount"],
+    },
+  },
+  {
+    name: "update_budget_entry",
+    description: "Update an existing income/expense entry (type, amount, description, category, date). Pass only the fields you want to change.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "integer" },
+        type: { type: "string", enum: ["income", "expense"] },
+        amount: { type: "number", minimum: 0 },
+        description: { type: "string" },
+        category: { type: "string" },
+        date: { type: "string", description: "ISO date YYYY-MM-DD." },
+      },
+      required: ["id"],
     },
   },
   {
@@ -495,18 +533,31 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "add_todo": {
       const text = asStr(input.text)?.trim();
       if (!text) return "Error: text required";
-      const rows = await query<{ id: number; text: string; category: string; priority: string }>(
-        "INSERT INTO todos (text, category, priority) VALUES ($1, $2, $3) RETURNING id, text, category, priority",
-        [text, asStr(input.category) ?? "general", asStr(input.priority) ?? "medium"]
+      const status = asStr(input.status) ?? "todo";
+      const validStatus = ["todo", "doing", "done"].includes(status) ? status : "todo";
+      const rows = await query<{ id: number; text: string; category: string; priority: string; status: string }>(
+        `INSERT INTO todos (text, category, priority, status, position, done)
+         VALUES ($1, $2, $3, $4,
+           COALESCE((SELECT MIN(position) - 1 FROM todos WHERE status = $4), 0),
+           $4 = 'done')
+         RETURNING id, text, category, priority, status`,
+        [text, asStr(input.category) ?? "general", asStr(input.priority) ?? "medium", validStatus]
       );
       const t = rows[0];
-      return `Added todo #${t.id}: "${t.text}" [${t.priority.toUpperCase()}, ${t.category}]`;
+      return `Added todo #${t.id}: "${t.text}" [${t.priority.toUpperCase()}, ${t.category}, ${t.status}]`;
     }
     case "complete_todo": {
       const id = asInt(input.id);
       if (!id) return "Error: id required";
       const rows = await query<{ text: string }>(
-        "UPDATE todos SET done = TRUE, done_at = NOW() WHERE id = $1 RETURNING text", [id]);
+        `UPDATE todos SET
+           done = TRUE,
+           done_at = NOW(),
+           status = 'done',
+           position = COALESCE((SELECT MAX(position) + 1 FROM todos WHERE status = 'done'), 0)
+         WHERE id = $1
+         RETURNING text`,
+        [id]);
       if (rows.length === 0) return `No todo with id ${id}`;
       return `Completed #${id}: "${rows[0].text}"`;
     }
@@ -514,20 +565,45 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       const id = asInt(input.id);
       if (!id) return "Error: id required";
       const rows = await query<{ text: string }>(
-        "UPDATE todos SET done = FALSE, done_at = NULL WHERE id = $1 RETURNING text", [id]);
+        `UPDATE todos SET
+           done = FALSE,
+           done_at = NULL,
+           status = 'todo',
+           position = COALESCE((SELECT MAX(position) + 1 FROM todos WHERE status = 'todo'), 0)
+         WHERE id = $1
+         RETURNING text`,
+        [id]);
       if (rows.length === 0) return `No todo with id ${id}`;
       return `Re-opened #${id}: "${rows[0].text}"`;
     }
     case "update_todo": {
       const id = asInt(input.id);
       if (!id) return "Error: id required";
+      const newStatus = asStr(input.status);
+      const validStatus = newStatus && ["todo", "doing", "done"].includes(newStatus) ? newStatus : null;
       await query(
         `UPDATE todos SET
            text = COALESCE($2, text),
            category = COALESCE($3, category),
-           priority = COALESCE($4, priority)
+           priority = COALESCE($4, priority),
+           status = COALESCE($5, status),
+           position = CASE
+             WHEN $5 IS NOT NULL AND $5 <> status
+               THEN COALESCE((SELECT MAX(position) + 1 FROM todos WHERE status = $5), 0)
+             ELSE position
+           END,
+           done = CASE
+             WHEN $5 = 'done' THEN TRUE
+             WHEN $5 IS NOT NULL THEN FALSE
+             ELSE done
+           END,
+           done_at = CASE
+             WHEN $5 = 'done' AND NOT done THEN NOW()
+             WHEN $5 IS NOT NULL AND $5 <> 'done' THEN NULL
+             ELSE done_at
+           END
          WHERE id = $1`,
-        [id, asStr(input.text), asStr(input.category), asStr(input.priority)]
+        [id, asStr(input.text), asStr(input.category), asStr(input.priority), validStatus]
       );
       return `Updated todo #${id}`;
     }
@@ -536,6 +612,17 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       if (!id) return "Error: id required";
       await query("DELETE FROM todos WHERE id = $1", [id]);
       return `Deleted todo #${id}`;
+    }
+    case "archive_todo": {
+      const id = asInt(input.id);
+      if (!id) return "Error: id required";
+      const archived = input.archived === false ? false : true;
+      const rows = await query<{ text: string }>(
+        "UPDATE todos SET archived = $1 WHERE id = $2 RETURNING text",
+        [archived, id]
+      );
+      if (rows.length === 0) return `No todo with id ${id}`;
+      return `${archived ? "Archived" : "Restored"} #${id}: "${rows[0].text}"`;
     }
 
     // ─── SCHEDULE ──────────
@@ -605,19 +692,15 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       const date = asStr(input.date) ?? isoToday();
       const valid = ["water","walk","workout","breakfast","quran","fajr","dhuhr","asr","maghrib","isha"];
       if (!key || !valid.includes(key)) return `Error: key must be one of ${valid.join(",")}`;
-      // Upsert into habits row for that date
-      const existing = await query<Record<string, boolean>>(
-        "SELECT * FROM habits WHERE date = $1", [date]);
-      if (existing.length === 0) {
-        const cols = valid.join(",");
-        const placeholders = valid.map((k, i) => k === key ? `$${i+2}` : `FALSE`).join(",");
-        await query(
-          `INSERT INTO habits (date, ${cols}) VALUES ($1, ${placeholders})`,
-          [date, done]
-        );
-      } else {
-        await query(`UPDATE habits SET ${key} = $1 WHERE date = $2`, [done, date]);
-      }
+      // Upsert into habits row for that date. Note: only the targeted column
+      // varies; the rest default to FALSE on insert, then UPDATE on conflict.
+      const cols = valid.join(",");
+      const placeholders = valid.map(k => k === key ? `$2` : `FALSE`).join(",");
+      await query(
+        `INSERT INTO habits (date, ${cols}) VALUES ($1, ${placeholders})
+         ON CONFLICT (date) DO UPDATE SET ${key} = EXCLUDED.${key}`,
+        [date, done]
+      );
       return `${done ? "Marked" : "Unmarked"} ${key} on ${date}`;
     }
     case "mark_custom_habit": {
@@ -646,8 +729,8 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "delete_custom_habit": {
       const habitId = asStr(input.habit_id);
       if (!habitId) return "Error: habit_id required";
-      await query("DELETE FROM habit_defs WHERE id = $1 AND builtin = FALSE", [habitId]);
-      return `Deleted custom habit ${habitId}`;
+      await query("DELETE FROM habit_defs WHERE id = $1", [habitId]);
+      return `Deleted habit ${habitId}`;
     }
 
     // ─── APPLICATIONS ──────
@@ -691,6 +774,34 @@ export async function executeTool(name: string, input: Input): Promise<string> {
         [type, amount, asStr(input.description), asStr(input.category)]
       );
       return `Added ${type} #${rows[0].id}: $${amount}${input.description ? ` "${input.description}"` : ""}`;
+    }
+    case "update_budget_entry": {
+      const id = asInt(input.id);
+      if (!id) return "Error: id required";
+      const type = asStr(input.type);
+      if (type !== null && type !== "income" && type !== "expense") {
+        return "Error: type must be 'income' or 'expense'";
+      }
+      const amountRaw = input.amount;
+      const amount = typeof amountRaw === "number"
+        ? amountRaw
+        : (typeof amountRaw === "string" ? parseFloat(amountRaw) : null);
+      if (amount !== null && (isNaN(amount as number) || (amount as number) < 0)) {
+        return "Error: amount must be a non-negative number";
+      }
+      const rows = await query<{ id: number }>(
+        `UPDATE budget_entries SET
+           type = COALESCE($2, type),
+           amount = COALESCE($3, amount),
+           description = COALESCE($4, description),
+           category = COALESCE($5, category),
+           date = COALESCE($6::date, date)
+         WHERE id = $1
+         RETURNING id`,
+        [id, type, amount, asStr(input.description), asStr(input.category), asStr(input.date)]
+      );
+      if (rows.length === 0) return `No budget entry with id ${id}`;
+      return `Updated budget entry #${id}`;
     }
     case "delete_budget_entry": {
       const id = asInt(input.id);
@@ -926,11 +1037,11 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       const label = asStr(input.label)?.trim();
       if (!habitId || !label) return "Error: habit_id and label required";
       const rows = await query<{ id: string }>(
-        "UPDATE habit_defs SET label = $1, updated_at = NOW() WHERE id = $2 AND builtin = FALSE RETURNING id",
+        "UPDATE habit_defs SET label = $1, updated_at = NOW() WHERE id = $2 RETURNING id",
         [label, habitId]
       );
-      if (rows.length === 0) return `No editable custom habit with id ${habitId} (builtin habits cannot be renamed)`;
-      return `Renamed custom habit ${habitId} → "${label}"`;
+      if (rows.length === 0) return `No habit with id ${habitId}`;
+      return `Renamed habit ${habitId} → "${label}"`;
     }
 
     default:
