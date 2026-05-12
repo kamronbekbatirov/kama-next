@@ -20,6 +20,12 @@ function TelegramThemeSync() {
       tg.expand?.();
       tg.disableVerticalSwipes?.();
 
+      // Bot API 8.0+: ask for true fullscreen. Falls back to expand() on
+      // older clients (already called above), so this is purely additive.
+      if (typeof tg.isVersionAtLeast === "function" && tg.isVersionAtLeast("8.0")) {
+        try { tg.requestFullscreen?.(); } catch { /* ignore */ }
+      }
+
       if (!localStorage.getItem("kama_theme_manual")) {
         setTheme(tg.colorScheme === "dark" ? "dark" : "light");
       }
