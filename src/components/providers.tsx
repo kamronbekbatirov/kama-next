@@ -10,7 +10,7 @@ import { translations } from "@/lib/i18n";
 // The Telegram Web App SDK is loaded via <Script strategy="beforeInteractive">
 // in miniapp/layout.tsx, but with `beforeInteractive` Next still defers it
 // slightly. We poll briefly to make sure window.Telegram.WebApp is there
-// before calling expand/disableVerticalSwipes/requestFullscreen, otherwise
+// before calling expand/disableVerticalSwipes, otherwise
 // the calls silently no-op (which is why "swipe is still enabled" looked
 // like nothing happened).
 function TelegramThemeSync() {
@@ -24,7 +24,6 @@ function TelegramThemeSync() {
         ready?: () => void;
         expand?: () => void;
         disableVerticalSwipes?: () => void;
-        requestFullscreen?: () => void;
         onEvent?: (e: string, fn: () => void) => void;
         offEvent?: (e: string, fn: () => void) => void;
         isVersionAtLeast?: (v: string) => boolean;
@@ -42,22 +41,16 @@ function TelegramThemeSync() {
       const inTelegram = !!tg.platform && tg.platform !== "unknown";
 
       if (inTelegram) {
-        // 1. Expand to full height (Bot API ≤7.6 needs this; 7.7+ does it
-        //    automatically but the call is still safe).
+        // 1. Expand to full available height (Bot API ≤7.6 needs this;
+        //    7.7+ does it automatically but the call is still safe).
         tg.expand?.();
 
-        // 2. Block swipe-down-to-close gesture (Bot API 7.7+).
+        // 2. Block swipe-down-to-close/collapse gesture (Bot API 7.7+).
         if (tg.isVersionAtLeast?.("7.7")) {
           try { tg.disableVerticalSwipes?.(); } catch { /* ignore */ }
         }
 
-        // 3. Edge-to-edge fullscreen (Bot API 8.0+). On older clients
-        //    expand() above already gives full available height.
-        if (tg.isVersionAtLeast?.("8.0")) {
-          try { tg.requestFullscreen?.(); } catch { /* ignore */ }
-        }
-
-        // 4. Theme follow
+        // 3. Theme follow
         const applyTheme = () => {
           if (!localStorage.getItem("kama_theme_manual")) {
             setTheme(tg.colorScheme === "dark" ? "dark" : "light");
