@@ -6,42 +6,97 @@ import type { Lang } from "@/lib/i18n";
 import { translations } from "@/lib/i18n";
 
 // ─── Telegram theme sync + init ────────────────────────────
+//
+// The Telegram Web App SDK is loaded via <Script strategy="beforeInteractive">
+// in miniapp/layout.tsx, but with `beforeInteractive` Next still defers it
+// slightly. We poll briefly to make sure window.Telegram.WebApp is there
+// before calling expand/disableVerticalSwipes/requestFullscreen, otherwise
+// the calls silently no-op (which is why "swipe is still enabled" looked
+// like nothing happened).
 function TelegramThemeSync() {
   const { setTheme } = useTheme();
   useEffect(() => {
-    const tg = (window as any).Telegram?.WebApp;
-    // initData is non-empty only when actually launched inside a Telegram Mini App.
-    // The SDK script loads on all pages, so `tg` exists everywhere — initData is the
-    // reliable signal that we're genuinely inside Telegram.
-    const inTelegram = Boolean(tg?.initData);
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
 
-    if (inTelegram) {
-      tg.ready?.();
-      tg.expand?.();
-      tg.disableVerticalSwipes?.();
-
-      // Bot API 8.0+: ask for true fullscreen. Falls back to expand() on
-      // older clients (already called above), so this is purely additive.
-      if (typeof tg.isVersionAtLeast === "function" && tg.isVersionAtLeast("8.0")) {
-        try { tg.requestFullscreen?.(); } catch { /* ignore */ }
-      }
-
-      if (!localStorage.getItem("kama_theme_manual")) {
-        setTheme(tg.colorScheme === "dark" ? "dark" : "light");
-      }
-      const handler = () => {
-        if (!localStorage.getItem("kama_theme_manual")) {
-          setTheme(tg.colorScheme === "dark" ? "dark" : "light");
-        }
+    const init = () => {
+      type TGWebApp = {
+        ready?: () => void;
+        expand?: () => void;
+        disableVerticalSwipes?: () => void;
+        requestFullscreen?: () => void;
+        onEvent?: (e: string, fn: () => void) => void;
+        offEvent?: (e: string, fn: () => void) => void;
+        isVersionAtLeast?: (v: string) => boolean;
+        platform?: string;
+        colorScheme?: string;
+        initData?: string;
       };
-      tg.onEvent("themeChanged", handler);
-      return () => tg.offEvent("themeChanged", handler);
-    } else {
-      // Regular browser — always follow OS preference unless the user manually toggled
-      if (!localStorage.getItem("kama_theme_manual")) {
-        setTheme("system");
+      const tg = (window as unknown as { Telegram?: { WebApp?: TGWebApp } }).Telegram?.WebApp;
+      if (!tg) return false;
+
+      tg.ready?.();
+
+      // "in Telegram" = platform is set to something other than "unknown".
+      // initData can be empty for valid Telegram sessions, so don't rely on it.
+      const inTelegram = !!tg.platform && tg.platform !== "unknown";
+
+      if (inTelegram) {
+        // 1. Expand to full height (Bot API ≤7.6 needs this; 7.7+ does it
+        //    automatically but the call is still safe).
+        tg.expand?.();
+
+        // 2. Block swipe-down-to-close gesture (Bot API 7.7+).
+        if (tg.isVersionAtLeast?.("7.7")) {
+          try { tg.disableVerticalSwipes?.(); } catch { /* ignore */ }
+        }
+
+        // 3. Edge-to-edge fullscreen (Bot API 8.0+). On older clients
+        //    expand() above already gives full available height.
+        if (tg.isVersionAtLeast?.("8.0")) {
+          try { tg.requestFullscreen?.(); } catch { /* ignore */ }
+        }
+
+        // 4. Theme follow
+        const applyTheme = () => {
+          if (!localStorage.getItem("kama_theme_manual")) {
+            setTheme(tg.colorScheme === "dark" ? "dark" : "light");
+          }
+        };
+        applyTheme();
+        if (tg.onEvent && tg.offEvent) {
+          tg.onEvent("themeChanged", applyTheme);
+          cleanup = () => tg.offEvent?.("themeChanged", applyTheme);
+        }
+      } else {
+        // Regular browser — follow OS theme unless user toggled manually.
+        if (!localStorage.getItem("kama_theme_manual")) {
+          setTheme("system");
+        }
       }
+      return true;
+    };
+
+    if (!init()) {
+      // SDK not loaded yet — poll for up to ~3s (60 × 50ms).
+      let attempts = 0;
+      const timerId = setInterval(() => {
+        if (cancelled || init() || ++attempts >= 60) {
+          clearInterval(timerId);
+        }
+      }, 50);
+      // Cleanup in case the component unmounts before SDK arrives
+      const prevCleanup = cleanup;
+      cleanup = () => {
+        clearInterval(timerId);
+        prevCleanup?.();
+      };
     }
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
   }, [setTheme]);
   return null;
 }
