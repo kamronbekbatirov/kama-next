@@ -80,10 +80,18 @@ function ContactForm() {
 
 // ─── DATA ──────────────────────────────────────────────────
 const TICKER = [
-  "Python", "TypeScript", "Next.js", "PostgreSQL",
-  "Linux", "DevOps", "Telegram API", "Machine Learning",
-  "REST APIs", "React", "Node.js", "Git",
+  "TypeScript", "Next.js 16", "Python", "FastAPI",
+  "PostgreSQL", "pgvector", "Claude tool-use", "OpenAI Responses",
+  "Embedded C", "ESP32-S3", "mbedTLS", "Three.js",
+  "Gaussian Splatting", "Meta Quest 3", "Caddy", "systemd",
 ];
+
+const STATUS_DOT: Record<string, string> = {
+  live: "bg-emerald-500",
+  oss: "bg-indigo-500",
+  build: "bg-amber-400",
+  research: "bg-[var(--foreground)]",
+};
 
 // ─── PAGE ──────────────────────────────────────────────────
 export default function PortfolioPage() {
@@ -114,11 +122,17 @@ export default function PortfolioPage() {
     { href: "#contact", label: t.nav.contact },
   ];
 
+  const statusLabel = (s: string) =>
+    s === "live" ? t.projects.live
+    : s === "oss" ? t.projects.oss
+    : s === "research" ? t.projects.research
+    : t.projects.wip;
+
   const projects = t.projects.items.map((p, i) => ({
     ...p,
-    num: `0${i + 1}`,
-    status: [t.projects.live, t.projects.live, t.projects.wip, t.projects.grade][i],
-    dot: ["bg-emerald-500", "bg-emerald-500", "bg-amber-400", "bg-[var(--foreground)]"][i],
+    num: i < 9 ? `0${i + 1}` : `${i + 1}`,
+    statusLabel: statusLabel(p.status),
+    dot: STATUS_DOT[p.status] ?? STATUS_DOT.build,
   }));
 
   return (
@@ -221,10 +235,10 @@ export default function PortfolioPage() {
           {/* Stats grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 border border-[var(--card-border)] mt-14 divide-x divide-[var(--card-border)]">
             {[
-              { v: "4+",  l: t.hero.stats.projects },
-              { v: "3",   l: t.hero.stats.languages },
-              { v: "2:1", l: t.hero.stats.degree },
-              { v: "A+",  l: t.hero.stats.dissertation },
+              { v: t.hero.statVals.projects,     l: t.hero.stats.projects },
+              { v: t.hero.statVals.languages,    l: t.hero.stats.languages },
+              { v: t.hero.statVals.degree,       l: t.hero.stats.degree },
+              { v: t.hero.statVals.dissertation, l: t.hero.stats.dissertation },
             ].map((s, i) => (
               <div key={i} className="py-6 px-5 text-center">
                 <div className="text-3xl font-black leading-none">{s.v}</div>
@@ -256,7 +270,7 @@ export default function PortfolioPage() {
         <div className="max-w-6xl mx-auto">
           <div className="flex items-baseline justify-between mb-1">
             <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--muted)]">{t.projects.tag}</span>
-            <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--muted)]">2023 – 2025</span>
+            <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--muted)]">2023 – 2026</span>
           </div>
           <h2 className="text-4xl font-black uppercase tracking-tight mb-0">{t.projects.title}</h2>
 
@@ -295,7 +309,7 @@ export default function PortfolioPage() {
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={cn("h-1.5 w-1.5 rounded-full group-hover:bg-[var(--background)] transition-colors", p.dot)} />
                     <span className="text-[10px] font-black uppercase tracking-[0.15em] text-[var(--muted)] group-hover:text-[var(--background)] transition-colors">
-                      {p.status}
+                      {p.statusLabel}
                     </span>
                   </div>
                 </div>
@@ -374,8 +388,8 @@ export default function PortfolioPage() {
               <p className="text-sm text-[var(--muted)] leading-relaxed">{t.contact.sub}</p>
               <div className="space-y-4 border-t border-[var(--card-border)] pt-8">
                 {[
-                  { href: "https://github.com/kbatirov", icon: Github, label: "github.com/kbatirov" },
-                  { href: "https://linkedin.com/in/kbatirov", icon: Linkedin, label: "linkedin.com/in/kbatirov" },
+                  { href: "https://github.com/kamronbekbatirov", icon: Github, label: "github.com/kamronbekbatirov" },
+                  { href: "https://linkedin.com/in/kamronbek-batirov", icon: Linkedin, label: "linkedin.com/in/kamronbek-batirov" },
                   { href: "mailto:hi@kama.uz", icon: Mail, label: "hi@kama.uz" },
                 ].map(({ href, icon: Icon, label }) => (
                   <a key={href} href={href} target={href.startsWith("http") ? "_blank" : undefined}
