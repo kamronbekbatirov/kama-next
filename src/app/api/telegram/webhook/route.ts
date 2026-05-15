@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { query } from "@/lib/db";
 import { TELEGRAM_ID } from "@/lib/auth";
-import { tgSendMessage, tgSendChatAction, truncateForTelegram } from "@/lib/telegram";
+import { tgSendMessage, tgSendChatAction, tgSendRichMessage, truncateForTelegram } from "@/lib/telegram";
 import { buildSystemPrompt, runChat, type ChatTurn } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
@@ -90,7 +90,7 @@ async function handleMessage(msg: NonNullable<TgUpdate["message"]>) {
     clearInterval(typingInterval);
 
     const finalText = truncateForTelegram(result.text || "(пустой ответ)");
-    await tgSendMessage(chatId, finalText);
+    await tgSendRichMessage(chatId, finalText);
 
     // Save assistant message
     const summary = result.toolCalls.length > 0
