@@ -5,7 +5,7 @@ import { useLang } from "@/components/providers";
 import { LangToggle } from "@/components/lang-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
-import { ArrowDownRight, Github, Linkedin, Mail } from "lucide-react";
+import { ArrowDownRight, Github, Linkedin, Mail, ExternalLink } from "lucide-react";
 
 // ─── CONTACT FORM ──────────────────────────────────────────
 function ContactForm() {
@@ -305,10 +305,40 @@ export default function PortfolioPage() {
                     </div>
                   </div>
 
+                  {/* Links */}
+                  {(p.liveUrl || p.repoUrl) && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      {p.liveUrl && (
+                        <a
+                          href={p.liveUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`${p.name} — live site`}
+                          className="h-8 w-8 inline-flex items-center justify-center border border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--background)] hover:text-[var(--background)] group-hover:border-[var(--background)]/40 group-hover:text-[var(--background)] transition-colors"
+                        >
+                          <ExternalLink size={12} />
+                        </a>
+                      )}
+                      {p.repoUrl && (
+                        <a
+                          href={p.repoUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`${p.name} — GitHub`}
+                          className="h-8 w-8 inline-flex items-center justify-center border border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--background)] hover:text-[var(--background)] group-hover:border-[var(--background)]/40 group-hover:text-[var(--background)] transition-colors"
+                        >
+                          <Github size={12} />
+                        </a>
+                      )}
+                    </div>
+                  )}
+
                   {/* Status */}
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={cn("h-1.5 w-1.5 rounded-full group-hover:bg-[var(--background)] transition-colors", p.dot)} />
-                    <span className="text-[10px] font-black uppercase tracking-[0.15em] text-[var(--muted)] group-hover:text-[var(--background)] transition-colors">
+                    <span className="text-[10px] font-black uppercase tracking-[0.15em] text-[var(--muted)] group-hover:text-[var(--background)] transition-colors hidden sm:inline">
                       {p.statusLabel}
                     </span>
                   </div>
