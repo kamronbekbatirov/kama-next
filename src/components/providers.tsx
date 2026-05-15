@@ -111,12 +111,17 @@ export function useLang() {
   return useContext(LangContext);
 }
 
-function LangProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("en");
+function LangProvider({ children, defaultLang }: { children: ReactNode; defaultLang: Lang }) {
+  // SSR + first client paint use defaultLang (server-detected from
+  // Accept-Language). Once mounted, an explicit choice from localStorage
+  // overrides it. UZ is never auto-selected — the user picks it manually.
+  const [lang, setLangState] = useState<Lang>(defaultLang);
 
   useEffect(() => {
     const saved = localStorage.getItem("kama_lang") as Lang | null;
-    if (saved && ["en", "ru", "uz"].includes(saved)) setLangState(saved);
+    if (saved && ["en", "ru", "uz"].includes(saved)) {
+      setLangState(saved);
+    }
   }, []);
 
   function setLang(l: Lang) {
@@ -134,11 +139,17 @@ function LangProvider({ children }: { children: ReactNode }) {
 }
 
 // ─── Root Providers ───────────────────────────────────────
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({
+  children,
+  defaultLang = "en",
+}: {
+  children: ReactNode;
+  defaultLang?: Lang;
+}) {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem={true}>
       <TelegramThemeSync />
-      <LangProvider>{children}</LangProvider>
+      <LangProvider defaultLang={defaultLang}>{children}</LangProvider>
     </ThemeProvider>
   );
 }
