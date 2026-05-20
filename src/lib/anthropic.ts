@@ -6,6 +6,10 @@ export const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const MAX_TOOL_ITERATIONS = 10;
+// Was 2048 — too small for batch-style asks ("add these 19 applications"),
+// since each tool_use block costs a few dozen tokens of JSON input and the
+// model would hit the cap, emit stop_reason=max_tokens, and never run tools.
+const MAX_OUTPUT_TOKENS = 8192;
 
 const PRAYER_IDS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
 
@@ -372,11 +376,17 @@ export async function runChat(
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 2048,
+      max_tokens: MAX_OUTPUT_TOKENS,
       system: systemPrompt,
       messages,
       tools: TOOL_DEFINITIONS,
     });
+
+    if (response.stop_reason === "max_tokens") {
+      console.warn(
+        `[anthropic] hit max_tokens (${MAX_OUTPUT_TOKENS}) before model finished. Tools may have been skipped.`
+      );
+    }
 
     totalIn += response.usage.input_tokens ?? 0;
     totalOut += response.usage.output_tokens ?? 0;
