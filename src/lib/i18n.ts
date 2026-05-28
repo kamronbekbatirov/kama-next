@@ -14,7 +14,7 @@ export const translations = {
       available: "Available for work · London, UK",
       title1: "Full-Stack",
       title2: "Developer",
-      sub: "I'm Kamronbek Batirov — BSc CS from Brunel University London. I ship end-to-end products — multi-tenant SaaS with RAG, AI-driven mini apps, embedded firmware with hand-rolled crypto, VR pipelines. 12 built, 5 live in production.",
+      sub: "I'm Kamronbek Batirov — BSc CS from Brunel University London. I ship end-to-end products — multi-tenant SaaS with RAG, AI-driven mini apps, a UK charity marketplace with Stripe, embedded firmware with hand-rolled crypto, VR pipelines. 13 built, 7 live in production.",
       viewProjects: "View Projects",
       getInTouch: "Get in touch",
       stats: {
@@ -24,8 +24,8 @@ export const translations = {
         dissertation: "FYP grade",
       },
       statVals: {
-        projects: "12",
-        languages: "5",
+        projects: "13",
+        languages: "7",
         degree: "2:1",
         dissertation: "A+",
       },
@@ -54,6 +54,18 @@ export const translations = {
       grade: "A+ Grade",
       items: [
         {
+          name: "Assista — No-code AI-assistant SaaS for SMBs",
+          desc: "Live production B2B SaaS. 48 niche templates × 11 capability modules (Q&A · CRM · catalogue · orders · stock · booking · reminders · broadcast · analytics · tickets · reviews). Three channels — website widget, Telegram bot, Telegram Business chat automation. Two Claude agents: chat agent on a marker-grammar action path + a 24-tool owner-assistant on Anthropic tool-use. RAG via pgvector + sentence-transformers, OpenAI Whisper voice in, Telegram OIDC + Google sign-in.",
+          status: "live",
+          liveUrl: "https://assista.uz",
+        },
+        {
+          name: "OfPeople — UK charity marketplace",
+          desc: "Live UK production at ofpeople.co.uk. London children's homes, nursing homes, animal shelters, hospices and crisis centres list specific items they need; donors buy them one at a time; the organisation later posts a photo of the item in use as the receipt. Three-role auth (donor / org_admin / platform_admin), Stripe Checkout (GBP, test mode) with webhook idempotency, frozen line-item snapshots in order_items, raw `pg` pool with idempotent migrations, `sharp` image pipeline, Leaflet + CartoDB map of verified orgs.",
+          status: "live",
+          liveUrl: "https://ofpeople.co.uk",
+        },
+        {
           name: "Trek — Personalised tax calendar",
           desc: "Next.js 15 + Prisma + Claude + Payme.uz. Onboarding wizard with inline AI assistant, retrieval-grounded Q&A over the Tax Code, daily Telegram reminders, full 7-method Payme merchant integration, four locales.",
           status: "live",
@@ -62,14 +74,9 @@ export const translations = {
         },
         {
           name: "NoiseBox — E2E-encrypted handheld messenger",
-          desc: "Embedded C on ESP32-S3 with mbedTLS. X25519 + X3DH-lite handshake, ChaCha20-Poly1305 AEAD, HKDF chain ratchet, 5-word SAS for MITM detection. Telegram Business Mode as a dumb pipe — relay never sees plaintext. AGPL-3.0 with written threat model and self-audit.",
+          desc: "Embedded C on ESP32-S3 with mbedTLS. X25519 + X3DH-lite handshake, ChaCha20-Poly1305 AEAD, HKDF chain ratchet, 5-word SAS for MITM detection. Telegram Business Mode as a dumb pipe — relay never sees plaintext. AGPL-3.0 with written threat model and self-audit, Web Serial flasher on GitHub Pages, one-command Docker deploy, hosted demo relay. Updated for Bot API 10.0 — works for non-Premium users.",
           status: "oss",
           repoUrl: "https://github.com/kamronbekbatirov/noisebox",
-        },
-        {
-          name: "Assista — No-code AI-assistant SaaS",
-          desc: "Multi-tenant SaaS. RAG pipeline end-to-end (chunk → embed → pgvector → retrieve → ground), embeddable JS widget in one <script> tag, Telegram channel via aiogram. Next.js + FastAPI + Postgres + Claude.",
-          status: "build",
         },
         {
           name: "kama.uz Dashboard — Claude as a first-class operator",
@@ -77,6 +84,38 @@ export const translations = {
           status: "live",
           liveUrl: "https://kama.uz",
           repoUrl: "https://github.com/kamronbekbatirov/kama-next",
+        },
+        {
+          name: "NotHard — Student-housing platform",
+          desc: "Property + services platform for the Uzbek market. Three audiences (students · agencies · runners). Monorepo with three independent processes: Next.js website, Flask API, Python-Telegram-Bot 20 with a 13-handler conversational state machine, and a standalone Payme.uz JSON-RPC merchant service. 4 systemd units behind one Caddy.",
+          status: "live",
+          liveUrl: "https://nothard.uz",
+          repoUrl: "https://github.com/kamronbekbatirov/nothard",
+        },
+        {
+          name: "Belleza — Beauty salon inside Telegram",
+          desc: "A premium Uzbek beauty salon that runs entirely inside a Telegram Mini App. Three audiences in one Next.js app with three distinct auth modes — clients (Telegram WebApp initData HMAC-verified), masters (phone-number login), admin (password-protected /vipadmin console). 3-step booking with a two-phase reservation that handles race conditions, slot-availability engine over master schedules + service durations. Owner console has 10 sub-pages (bookings · services · masters · clients · promo codes · reviews · broadcasts · categories · reservations · stats). Cron-gated daily reminders + slot generation. Trilingual.",
+          status: "live",
+          liveUrl: "https://t.me/vipsalonbot",
+        },
+        {
+          name: "HumanBase — Your own 3D room on the internet",
+          desc: "Live at humanbase.co.uk. Every person gets a small, soft, fully personal 3D room — sign up, drag furniture from a side panel, decorate, walk away with a link. Real Three.js + react-three-fiber scene with state persisted as Postgres rows. Built-in notebook, sticky board, Pomodoro, background music — all part of the same scene context. Personal numeric handles (humanbase.co.uk/12345), server-side personal-profile barcodes via bwip-js, friends system. Two-service trust model: anon-key Next.js + service-role Express + Pino API. 4 locales (EN/RU/ES/FR), Supabase auth (email + magic link).",
+          status: "live",
+          liveUrl: "https://humanbase.co.uk",
+        },
+        {
+          name: "XPGame — Personal-growth as an RPG",
+          desc: "Telegram mini-app. Raw thoughts → GPT-5 maps them into goals → a roadmap → time-boxed tasks → XP → levels → a shop you design yourself. Server-authoritative game economy, OpenAI Responses API with persistent threads via response_id, Telegram WebApp HMAC auth, 11-table Postgres schema, custom boosters + duration-based rewards.",
+          status: "oss",
+          repoUrl: "https://github.com/kamronbekbatirov/xpgame",
+        },
+        {
+          name: "Maverick — Tashkent services brand site",
+          desc: "Single-page marketing site for the Maverick brand and its flagship mobile car-wash service. Hand-built four-section narrative, Framer Motion, trilingual via next-intl with Russian at /. Standalone Next.js bound to 127.0.0.1 by a postbuild step — reverse proxy handles TLS and security headers centrally.",
+          status: "live",
+          liveUrl: "https://maverick.uz",
+          repoUrl: "https://github.com/kamronbekbatirov/maverick",
         },
         {
           name: "RealEstateVR — Gaussian-Splat property tours",
@@ -90,6 +129,12 @@ export const translations = {
           liveUrl: "https://taxco.uz",
           repoUrl: "https://github.com/kamronbekbatirov/taxco",
         },
+        {
+          name: "Earned — iOS app web companion",
+          desc: "The minimum public web surface required for the Earned iOS app to deep-link properly. Apple App Site Association served with the exact Content-Type that breaks on most static hosts, two friendly invite/join landing pages, markdown-canonical legal docs, ships with a Caddyfile reference so anyone can self-host the same setup.",
+          status: "oss",
+          repoUrl: "https://github.com/kamronbekbatirov/earned-web",
+        },
       ],
     },
     experience: {
@@ -99,9 +144,9 @@ export const translations = {
       items: [
         {
           title: "Freelance & Personal Projects",
-          company: "Trek · Maverick · NotHard · TaxCo · NoiseBox · Assista · others",
+          company: "Assista · Trek · NotHard · Maverick · TaxCo · NoiseBox · XPGame · others",
           date: "2023 – Present",
-          desc: "Sole engineer end-to-end on 12 shipped products. Architecture, code, DB schema, systemd + Caddy deploys, ongoing operation. Two production LLM stacks (Claude with tool-use, OpenAI Responses API), full Payme.uz merchant integration shipped twice, an open-source embedded-C messenger with a written threat model, a VR / Gaussian-Splat capture pipeline.",
+          desc: "Sole engineer end-to-end on 13 shipped products, 7 live in production. Architecture, code, DB schema, systemd + Caddy deploys, ongoing operation. Two production LLM stacks (Claude with tool-use, OpenAI Responses API), a multi-tenant SaaS with 48 templates and 11 capability modules at assista.uz, full Payme.uz merchant integration shipped twice, Stripe Checkout with webhook idempotency on a UK charity marketplace, an open-source embedded-C messenger with a written threat model + a Web Serial flasher + a hosted demo relay, a VR / Gaussian-Splat capture pipeline.",
         },
         {
           title: "Project Technical Assistant (Industrial Placement)",
@@ -189,12 +234,17 @@ export const translations = {
         noTasks: "No tasks",
         cols: { todo: "To do", doing: "In progress", done: "Done" },
         emptyColumn: "Empty",
-        addHere: "+ Add",
+        addHere: "Add",
         archive: "Archive",
         archived: "Archived",
         archiveAction: "Archive",
         restoreAction: "Restore",
         archiveEmpty: "Nothing archived",
+        descPlaceholder: "Description (optional) — details, links, sub-steps. Use new lines freely.",
+        category: "Category",
+        priority: "Priority",
+        status: "Status",
+        copyColumn: "Copy this column",
       },
       jobs: {
         all: "All",
@@ -207,6 +257,9 @@ export const translations = {
         noApps: "No applications",
         save: "Save",
         cancel: "Cancel",
+        pipeline: "Pipeline",
+        filtering: "filtering",
+        copyAll: "Copy all to clipboard",
       },
       budget: {
         balance: "Balance",
@@ -233,6 +286,7 @@ export const translations = {
       },
       log: {
         reflection: "Evening Reflection",
+        dateLabel: "Date",
         q1: "What moved forward today?",
         q2: "Most important task for tomorrow?",
         q3: "Visa progress today",
@@ -463,18 +517,18 @@ export const translations = {
       available: "Готов к работе · Лондон, UK",
       title1: "Full-Stack",
       title2: "Разработчик",
-      sub: "Я Камронбек Батиров — выпускник CS, Brunel University London. Делаю продукты от идеи до live-домена: мульти-тенант SaaS с RAG, AI-driven мини-аппы, embedded-прошивки со своей криптографией, VR-пайплайны. 12 проектов сделано, 5 в production.",
+      sub: "Я Камронбек Батиров — выпускник CS, Brunel University London. Делаю продукты от идеи до live-домена: мульти-тенант SaaS с RAG, AI-driven мини-аппы, UK-маркетплейс с Stripe, embedded-прошивки со своей криптографией, VR-пайплайны. 13 проектов сделано, 7 в production.",
       viewProjects: "Проекты",
       getInTouch: "Написать",
       stats: {
-        projects: "Проектов",
+        projects: "Проекты",
         languages: "В production",
         degree: "BSc CS Brunel",
         dissertation: "Оценка диплома",
       },
       statVals: {
-        projects: "12",
-        languages: "5",
+        projects: "13",
+        languages: "7",
         degree: "2:1",
         dissertation: "A+",
       },
@@ -503,6 +557,18 @@ export const translations = {
       grade: "Оценка A+",
       items: [
         {
+          name: "Assista — No-code AI-ассистент SaaS для малого бизнеса",
+          desc: "Production B2B SaaS на assista.uz. 48 шаблонов под ниши × 11 модулей возможностей (Q&A · клиенты · каталог · заказы · сток · запись · напоминания · рассылка · аналитика · тикеты · отзывы). Три канала: виджет на сайт, Telegram-бот, Telegram Business chat automation. Два Claude-агента: чат-агент на маркер-грамматике + ассистент владельца с 24 инструментами Anthropic tool-use. RAG через pgvector + sentence-transformers, голос через OpenAI Whisper, Telegram OIDC + Google sign-in.",
+          status: "live",
+          liveUrl: "https://assista.uz",
+        },
+        {
+          name: "OfPeople — UK благотворительный маркетплейс",
+          desc: "Live UK production на ofpeople.co.uk. Лондонские детдома, дома престарелых, приюты для животных, хосписы и кризисные центры публикуют конкретные вещи, которые им нужны; доноры покупают их по одной; организация затем выкладывает фото вещи в использовании — это и есть «чек». Три роли (donor / org_admin / platform_admin), Stripe Checkout (GBP, test mode) с идемпотентностью webhook'а, frozen line-item snapshots в order_items, сырой `pg` Pool с идемпотентными миграциями, серверный image pipeline через `sharp`, Leaflet + CartoDB карта верифицированных организаций.",
+          status: "live",
+          liveUrl: "https://ofpeople.co.uk",
+        },
+        {
           name: "Trek — Налоговый календарь",
           desc: "Next.js 15 + Prisma + Claude + Payme.uz. Онбординг-мастер со встроенным AI-ассистентом, retrieval-grounded ответы по Налоговому Кодексу, ежедневные Telegram-напоминания, полная 7-метод JSON-RPC интеграция Payme, четыре локали.",
           status: "live",
@@ -511,14 +577,9 @@ export const translations = {
         },
         {
           name: "NoiseBox — E2E-шифрованный мессенджер",
-          desc: "Embedded C на ESP32-S3 с mbedTLS. X25519 + X3DH-lite handshake, ChaCha20-Poly1305 AEAD, HKDF chain ratchet, 5-словный SAS для детекции MITM. Telegram Business Mode как тупой канал — relay видит только base64. AGPL-3.0 с написанной моделью угроз и self-audit.",
+          desc: "Embedded C на ESP32-S3 с mbedTLS. X25519 + X3DH-lite handshake, ChaCha20-Poly1305 AEAD, HKDF chain ratchet, 5-словный SAS для детекции MITM. Telegram Business Mode как тупой канал — relay видит только base64. AGPL-3.0 с моделью угроз и self-audit, веб-флешер на GitHub Pages, деплой одной командой через Docker, hosted demo relay. Обновлён под Bot API 10.0 — работает и без Telegram Premium.",
           status: "oss",
           repoUrl: "https://github.com/kamronbekbatirov/noisebox",
-        },
-        {
-          name: "Assista — No-code AI-ассистент SaaS",
-          desc: "Multi-tenant SaaS. RAG-пайплайн end-to-end (chunk → embed → pgvector → retrieve → ground), встраиваемый JS-виджет в одну строку <script>, канал в Telegram через aiogram. Next.js + FastAPI + Postgres + Claude.",
-          status: "build",
         },
         {
           name: "kama.uz Dashboard — Claude как оператор",
@@ -526,6 +587,38 @@ export const translations = {
           status: "live",
           liveUrl: "https://kama.uz",
           repoUrl: "https://github.com/kamronbekbatirov/kama-next",
+        },
+        {
+          name: "NotHard — Платформа для студенческого жилья",
+          desc: "Платформа недвижимости + услуг для узбекского рынка. Три аудитории: студенты, агентства, runners. Монорепо с тремя независимыми процессами: Next.js фронт, Flask API, Python-Telegram-Bot 20 со state machine из 13 хендлер-модулей и отдельный Payme.uz JSON-RPC сервис. 4 systemd-юнита за одним Caddy.",
+          status: "live",
+          liveUrl: "https://nothard.uz",
+          repoUrl: "https://github.com/kamronbekbatirov/nothard",
+        },
+        {
+          name: "Belleza — Салон красоты внутри Telegram",
+          desc: "Премиум-салон красоты, который полностью работает внутри Telegram Mini App. Три аудитории в одном Next.js-приложении с тремя разными auth-режимами: клиенты (Telegram WebApp initData HMAC), мастера (логин по номеру), админ (пароль → /vipadmin). Запись в 3 шага с двухфазной резервацией (hold + confirm), движок свободных слотов из расписаний мастеров + длительностей услуг. Owner-консоль из 10 разделов (записи · услуги · мастера · клиенты · промокоды · отзывы · рассылки · категории · резервы · статистика). Cron-эндпоинты для напоминаний и генерации слотов. Три языка.",
+          status: "live",
+          liveUrl: "https://t.me/vipsalonbot",
+        },
+        {
+          name: "HumanBase — Своя 3D-комната в интернете",
+          desc: "Live на humanbase.co.uk. У каждого человека своя маленькая, уютная, полностью персональная 3D-комната — регаешься, перетаскиваешь мебель из боковой панели, обустраиваешь, забираешь себе ссылку. Настоящая Three.js + react-three-fiber сцена со state'ом, сохранённым в Postgres-строках. Встроенные блокнот, sticky-доска, Pomodoro, фоновая музыка — всё в одной сцене. Личные числовые хэндлы (humanbase.co.uk/12345), серверные баркоды через bwip-js, система друзей. Two-service trust model: anon-key Next.js + service-role Express + Pino API. 4 локали (EN/RU/ES/FR), Supabase auth (email + magic-link).",
+          status: "live",
+          liveUrl: "https://humanbase.co.uk",
+        },
+        {
+          name: "XPGame — Личностный рост как RPG",
+          desc: "Telegram mini-app. Сырые мысли → GPT-5 раскладывает их по целям → составляет roadmap → задачи с таймбоксом → XP → уровни → магазин, который ты сам спроектировал. Server-authoritative game economy, OpenAI Responses API с persistent threads через response_id, Telegram WebApp HMAC auth, 11-table Postgres-схема, бустеры и durable-награды.",
+          status: "oss",
+          repoUrl: "https://github.com/kamronbekbatirov/xpgame",
+        },
+        {
+          name: "Maverick — Бренд-сайт ташкентского сервиса",
+          desc: "Одностраничный маркетинговый сайт бренда Maverick и его флагмана — выездной автомойки Maverick Detailing. Четыре секции вручную, Framer Motion, три языка через next-intl с русским на /. Standalone Next.js привязан к 127.0.0.1 через postbuild — TLS и заголовки безопасности отдаются централизованно в reverse proxy.",
+          status: "live",
+          liveUrl: "https://maverick.uz",
+          repoUrl: "https://github.com/kamronbekbatirov/maverick",
         },
         {
           name: "RealEstateVR — VR-туры по недвижимости",
@@ -539,6 +632,12 @@ export const translations = {
           liveUrl: "https://taxco.uz",
           repoUrl: "https://github.com/kamronbekbatirov/taxco",
         },
+        {
+          name: "Earned — Web-компаньон для iOS-приложения",
+          desc: "Минимальная публичная веб-поверхность, нужная чтобы iOS-приложение Earned могло корректно работать через Universal Links. AASA отдаётся именно тем Content-Type, на котором ломаются почти все статик-хосты; две landing-страницы для invite/join; canonical legal-документы в Markdown; в репо ездит готовый Caddyfile.",
+          status: "oss",
+          repoUrl: "https://github.com/kamronbekbatirov/earned-web",
+        },
       ],
     },
     experience: {
@@ -548,9 +647,9 @@ export const translations = {
       items: [
         {
           title: "Фриланс и личные проекты",
-          company: "Trek · Maverick · NotHard · TaxCo · NoiseBox · Assista · др.",
+          company: "Assista · Trek · NotHard · Maverick · TaxCo · NoiseBox · XPGame · др.",
           date: "2023 — настоящее",
-          desc: "Единственный инженер на 12 продуктах. Архитектура, код, схема БД, деплой systemd + Caddy, поддержка. Два production-LLM-стека (Claude с tool-use, OpenAI Responses API), полная интеграция Payme.uz дважды, open-source embedded-C мессенджер с моделью угроз, VR / Gaussian-Splat пайплайн.",
+          desc: "Единственный инженер на 13 продуктах, 7 в production. Архитектура, код, схема БД, деплой systemd + Caddy, поддержка. Два production-LLM-стека (Claude с tool-use, OpenAI Responses API), multi-tenant SaaS на assista.uz с 48 шаблонами и 11 модулями возможностей, полная интеграция Payme.uz дважды, Stripe Checkout с идемпотентностью webhook'а на UK-благотворительном маркетплейсе, open-source embedded-C мессенджер с моделью угроз + Web Serial flasher + hosted demo relay, VR / Gaussian-Splat пайплайн.",
         },
         {
           title: "Project Technical Assistant (placement)",
@@ -637,12 +736,17 @@ export const translations = {
         noTasks: "Задач нет",
         cols: { todo: "К сделать", doing: "В работе", done: "Готово" },
         emptyColumn: "Пусто",
-        addHere: "+ Добавить",
+        addHere: "Добавить",
         archive: "Архив",
         archived: "В архиве",
         archiveAction: "В архив",
         restoreAction: "Вернуть",
         archiveEmpty: "В архиве пусто",
+        descPlaceholder: "Описание (по желанию) — детали, ссылки, подшаги. Пиши столько, сколько надо.",
+        category: "Категория",
+        priority: "Приоритет",
+        status: "Статус",
+        copyColumn: "Скопировать колонку",
       },
       jobs: {
         all: "Все",
@@ -655,6 +759,9 @@ export const translations = {
         noApps: "Заявок нет",
         save: "Сохранить",
         cancel: "Отмена",
+        pipeline: "Воронка",
+        filtering: "фильтр",
+        copyAll: "Скопировать всё",
       },
       budget: {
         balance: "Баланс",
@@ -681,6 +788,7 @@ export const translations = {
       },
       log: {
         reflection: "Вечерняя рефлексия",
+        dateLabel: "Дата",
         q1: "Что продвинулось сегодня?",
         q2: "Самая важная задача на завтра?",
         q3: "Прогресс по визе сегодня",
@@ -911,7 +1019,7 @@ export const translations = {
       available: "Ишга тайёр · Лондон, UK",
       title1: "Full-Stack",
       title2: "Дастурчи",
-      sub: "Мен Камронбек Батиров — Brunel University London'да BSc CS. Маҳсулотларни ғоядан live-доменгача ишлаб чиқараман: multi-tenant SaaS RAG билан, AI-driven mini app'лар, ўзим ёзган криптография билан embedded прошивкалар, VR пайплайнлар. 12 та маҳсулот, 5 таси production'да.",
+      sub: "Мен Камронбек Батиров — Brunel University London'да BSc CS. Маҳсулотларни ғоядан live-доменгача ишлаб чиқараман: multi-tenant SaaS RAG билан, AI-driven mini app'лар, Stripe билан UK маркетплейс, ўзим ёзган криптография билан embedded прошивкалар, VR пайплайнлар. 13 та маҳсулот, 7 таси production'да.",
       viewProjects: "Лойиҳалар",
       getInTouch: "Боғланиш",
       stats: {
@@ -921,8 +1029,8 @@ export const translations = {
         dissertation: "Диплом баҳоси",
       },
       statVals: {
-        projects: "12",
-        languages: "5",
+        projects: "13",
+        languages: "7",
         degree: "2:1",
         dissertation: "A+",
       },
@@ -951,6 +1059,18 @@ export const translations = {
       grade: "A+ Баҳо",
       items: [
         {
+          name: "Assista — Кичик бизнес учун No-code AI ассистент SaaS",
+          desc: "assista.uz'да production B2B SaaS. Соҳалар бўйича 48 та шаблон × 11 та модул (Q&A · клиентлар · каталог · буюртмалар · сток · ёзилиш · эслатмалар · рассылка · аналитика · тикетлар · баҳолар). Уч канал: вебсайт виджети, Telegram-бот, Telegram Business chat automation. Икки Claude-агент: маркер-грамматикали чат-агент + 24 та Anthropic tool-use инструменти билан эга бўлган эга ассистенти. RAG pgvector + sentence-transformers орқали, OpenAI Whisper билан овоз, Telegram OIDC + Google sign-in.",
+          status: "live",
+          liveUrl: "https://assista.uz",
+        },
+        {
+          name: "OfPeople — UK хайрия маркетплейси",
+          desc: "ofpeople.co.uk'да live UK production. Лондондаги болалар уйлари, кексалар уйлари, ҳайвонлар учун бошпаналар, хоспислар ва инқироз марказлари ўзларига керакли аниқ нарсаларни эълон қилади; донорлар уларни биттадан сотиб олади; кейин ташкилот шу нарсанинг ишлатилишидан суратни «чек» сифатида юклайди. Уч роль (donor / org_admin / platform_admin), Stripe Checkout (GBP, test mode) webhook идемпотентлиги билан, order_items'да муздан line-item snapshots, идемпотент миграциялар билан тоза `pg` Pool, `sharp` орқали серверли image pipeline, верификацияланган ташкилотларнинг Leaflet + CartoDB харитаси.",
+          status: "live",
+          liveUrl: "https://ofpeople.co.uk",
+        },
+        {
           name: "Trek — Шахсий солиқ календари",
           desc: "Next.js 15 + Prisma + Claude + Payme.uz. AI-ёрдамчили онбординг, Налоговый кодекс бўйича retrieval-grounded жавоблар, кунлик Telegram-эслатмалар, тўлиқ 7-метод Payme JSON-RPC, тўрт тил.",
           status: "live",
@@ -959,14 +1079,9 @@ export const translations = {
         },
         {
           name: "NoiseBox — E2E шифрланган мессенджер",
-          desc: "ESP32-S3'да embedded C, mbedTLS. X25519 + X3DH-lite handshake, ChaCha20-Poly1305 AEAD, HKDF chain ratchet, 5-сўзли SAS — MITM аниқлаш учун. Telegram Business Mode — оддий канал, relay фақат base64'ни кўради. AGPL-3.0, тарелиди модели ва ўз-аудит билан.",
+          desc: "ESP32-S3'да embedded C, mbedTLS. X25519 + X3DH-lite handshake, ChaCha20-Poly1305 AEAD, HKDF chain ratchet, 5-сўзли SAS — MITM аниқлаш учун. Telegram Business Mode — оддий канал, relay фақат base64'ни кўради. AGPL-3.0, тарелиди модели ва ўз-аудит билан, GitHub Pages'да web-flasher, Docker'да бир команда билан деплой, hosted demo relay. Bot API 10.0 учун янгиланган — Premium талаб қилмайди.",
           status: "oss",
           repoUrl: "https://github.com/kamronbekbatirov/noisebox",
-        },
-        {
-          name: "Assista — No-code AI ассистент SaaS",
-          desc: "Multi-tenant SaaS. RAG-пайплайн (chunk → embed → pgvector → retrieve → ground), битта <script> тегли встроенный JS-виджет, aiogram орқали Telegram канал. Next.js + FastAPI + Postgres + Claude.",
-          status: "build",
         },
         {
           name: "kama.uz Dashboard — Claude оператор сифатида",
@@ -974,6 +1089,38 @@ export const translations = {
           status: "live",
           liveUrl: "https://kama.uz",
           repoUrl: "https://github.com/kamronbekbatirov/kama-next",
+        },
+        {
+          name: "NotHard — Талабалар учун уй платформаси",
+          desc: "Ўзбекистон бозори учун кўчмас мулк + хизматлар платформаси. Уч аудитория: талабалар, агентликлар, runners. Учта мустақил процессдан иборат монорепо: Next.js фронт, Flask API, 13 та handler-модулли state machine билан Python-Telegram-Bot 20 ва алоҳида Payme.uz JSON-RPC сервис. Битта Caddy ортида 4 та systemd-юнит.",
+          status: "live",
+          liveUrl: "https://nothard.uz",
+          repoUrl: "https://github.com/kamronbekbatirov/nothard",
+        },
+        {
+          name: "Belleza — Telegram ичидаги гўзаллик салони",
+          desc: "Премиум гўзаллик салони тўлиқлигича Telegram Mini App ичида ишлайди. Битта Next.js'да уч аудитория, ҳар бирига алоҳида auth: мижозлар (Telegram WebApp initData HMAC), мастерлар (телефон рақам), админ (парол → /vipadmin). 3 қадамли ёзилиш икки фазали резервация билан (hold + confirm), мастер жадваллари + хизмат давомийлиги асосида бўш слотлар двигатели. Owner-консоль 10 бўлимдан иборат (ёзилишлар · хизматлар · мастерлар · мижозлар · промокодлар · фикрлар · рассылкалар · категориялар · резервлар · статистика). Эслатмалар ва слот генерацияси учун cron-эндпоинтлар. Уч тил.",
+          status: "live",
+          liveUrl: "https://t.me/vipsalonbot",
+        },
+        {
+          name: "HumanBase — Интернетда ўзингнинг 3D хонанг",
+          desc: "humanbase.co.uk'да live. Ҳар бир одамга кичик, юмшоқ, шахсий 3D хона — рўйхатдан ўтасан, ён панелдан мебелни судраб, безатиб, ўзингга ҳаволани оласан. Postgres'да state'и сақланган ҳақиқий Three.js + react-three-fiber саҳна. Битта саҳна контекстида интегратор блокнот, sticky-доска, Pomodoro, фон мусиқа. Шахсий рақамли handle'лар (humanbase.co.uk/12345), bwip-js орқали серверли баркодлар, дўстлар тизими. Two-service trust model: anon-key Next.js + service-role Express + Pino API. 4 та тил (EN/RU/ES/FR), Supabase auth (email + magic-link).",
+          status: "live",
+          liveUrl: "https://humanbase.co.uk",
+        },
+        {
+          name: "XPGame — Шахсий ўсиш RPG сифатида",
+          desc: "Telegram mini-app. Хом фикрлар → GPT-5 уларни мақсадларга солади → roadmap → таймбоксли вазифалар → XP → даражалар → ўзинг лойиҳалаган дўкон. Server-authoritative game economy, OpenAI Responses API persistent thread'лар билан, Telegram WebApp HMAC auth, 11 жадвалли Postgres схема, бустерлар ва durable-мукофотлар.",
+          status: "oss",
+          repoUrl: "https://github.com/kamronbekbatirov/xpgame",
+        },
+        {
+          name: "Maverick — Тошкент сервис бренд-сайти",
+          desc: "Maverick бренди ва унинг flagship хизмати — выездной автомойка Maverick Detailing учун битта саҳифали маркетинг-сайт. Тўрт секцияли қўлёзма наратив, Framer Motion, next-intl орқали уч тил (русча /'да). Standalone Next.js postbuild орқали 127.0.0.1'га боғланган — TLS ва хавфсизлик ҳедерлари марказлашган reverse proxy'да.",
+          status: "live",
+          liveUrl: "https://maverick.uz",
+          repoUrl: "https://github.com/kamronbekbatirov/maverick",
         },
         {
           name: "RealEstateVR — VR кўчмас мулк",
@@ -987,6 +1134,12 @@ export const translations = {
           liveUrl: "https://taxco.uz",
           repoUrl: "https://github.com/kamronbekbatirov/taxco",
         },
+        {
+          name: "Earned — iOS-илова учун веб-компаньон",
+          desc: "Earned iOS-иловасининг Universal Links орқали тўғри ишлаши учун керакли минимал оммавий веб-юзаси. AASA асосан статик хостларда бузилиб кетадиган айнан Content-Type'и билан берилади; invite/join учун иккита landing; canonical legal-ҳужжатлар Markdown'да; репода Caddyfile тайёр.",
+          status: "oss",
+          repoUrl: "https://github.com/kamronbekbatirov/earned-web",
+        },
       ],
     },
     experience: {
@@ -996,9 +1149,9 @@ export const translations = {
       items: [
         {
           title: "Фриланс ва шахсий лойиҳалар",
-          company: "Trek · Maverick · NotHard · TaxCo · NoiseBox · Assista · б.қ.",
+          company: "Assista · Trek · NotHard · Maverick · TaxCo · NoiseBox · XPGame · б.қ.",
           date: "2023 — ҳозирча",
-          desc: "12 та маҳсулот устида ягона дастурчи. Архитектура, код, БД, systemd + Caddy деплой, қўллаб-қувватлаш. Икки production LLM-стек (Claude tool-use, OpenAI Responses API), Payme.uz интеграцияси иккита маҳсулотда, open-source embedded-C мессенжер тарелиди модели билан, VR / Gaussian-Splat пайплайн.",
+          desc: "13 та маҳсулот устида ягона дастурчи, 7 таси production'да. Архитектура, код, БД, systemd + Caddy деплой, қўллаб-қувватлаш. Икки production LLM-стек (Claude tool-use, OpenAI Responses API), assista.uz'да 48 шаблон ва 11 модулли multi-tenant SaaS, иккита маҳсулотда тўлиқ Payme.uz интеграцияси, UK благотворительный маркетплейс'да webhook'нинг идемпотентлиги билан Stripe Checkout, тарелиди модели + Web Serial flasher + hosted demo relay билан open-source embedded-C мессенжер, VR / Gaussian-Splat пайплайн.",
         },
         {
           title: "Project Technical Assistant (placement)",
@@ -1085,12 +1238,17 @@ export const translations = {
         noTasks: "Вазифалар йўқ",
         cols: { todo: "Қилиш", doing: "Жараёнда", done: "Тайёр" },
         emptyColumn: "Бўш",
-        addHere: "+ Қўшиш",
+        addHere: "Қўшиш",
         archive: "Архив",
         archived: "Архивда",
         archiveAction: "Архивга",
         restoreAction: "Қайтариш",
         archiveEmpty: "Архив бўш",
+        descPlaceholder: "Тавсиф (ихтиёрий) — тафсилотлар, ҳаволалар, қадамлар. Узун ёзишингиз мумкин.",
+        category: "Категория",
+        priority: "Аҳамият",
+        status: "Ҳолат",
+        copyColumn: "Устунни нусхалаш",
       },
       jobs: {
         all: "Барчаси",
@@ -1103,6 +1261,9 @@ export const translations = {
         noApps: "Аризалар йўқ",
         save: "Сақлаш",
         cancel: "Бекор",
+        pipeline: "Воронка",
+        filtering: "фильтр",
+        copyAll: "Ҳаммасини нусхалаш",
       },
       budget: {
         balance: "Баланс",
@@ -1129,6 +1290,7 @@ export const translations = {
       },
       log: {
         reflection: "Кечки рефлексия",
+        dateLabel: "Сана",
         q1: "Бугун нима илгарилади?",
         q2: "Эртага энг муҳим вазифа?",
         q3: "Бугун виза бўйича прогресс",

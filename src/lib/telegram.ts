@@ -34,6 +34,17 @@ export async function tgEditMessage(
   return res.json();
 }
 
+/**
+ * Resolve a Telegram file_id to a downloadable URL.
+ * Telegram caps direct downloads at 20 MB per file.
+ */
+export async function tgGetFileUrl(fileId: string): Promise<string | null> {
+  const res = await fetch(`${API}/getFile?file_id=${encodeURIComponent(fileId)}`);
+  const body = await res.json();
+  if (!body?.ok || !body.result?.file_path) return null;
+  return `https://api.telegram.org/file/bot${BOT_TOKEN}/${body.result.file_path}`;
+}
+
 /** Sends "typing" action; Telegram displays it for ~5s. Re-send for longer waits. */
 export async function tgSendChatAction(
   chatId: number | string,

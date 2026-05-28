@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Archive, ArchiveRestore, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Archive, ArchiveRestore, ChevronDown, ChevronRight, AlignLeft } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -18,6 +18,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useLang } from "@/components/providers";
@@ -25,7 +26,7 @@ import {
   api, jPost, jPatch, jDel,
   TODO_STATUSES, type Todo, type TodoStatus,
 } from "./_shared";
-import { Pill, Chip, IconButton } from "./dashboard-ui";
+import { Pill, Chip, IconButton, CopyButton } from "./dashboard-ui";
 
 const PRIORITY_DOT: Record<string, string> = {
   high: "bg-red-500",
@@ -48,9 +49,12 @@ export function TasksTab() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Mobile drag was laggy because the TouchSensor delay was high enough that
+  // the page would scroll first; cutting the delay and widening the tolerance
+  // makes a long-press pick up the card almost immediately.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor,   { activationConstraint: { delay: 180, tolerance: 8 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 120, tolerance: 12 } }),
   );
 
   const archived = useMemo(() => todos.filter(t => t.archived), [todos]);
@@ -300,11 +304,27 @@ function KanbanColumn({
           : "border-[var(--card-border)] bg-[var(--card)]",
       ].join(" ")}
     >
-      <div className="flex items-center justify-between px-1.5 pt-1 pb-0.5">
-        <div className="text-[10px] uppercase tracking-[0.16em] font-semibold text-[var(--muted)] truncate">
+      <div className="flex items-center justify-between gap-1 px-1.5 pt-1 pb-0.5">
+        <div className="text-[10px] uppercase tracking-[0.16em] font-semibold text-[var(--muted)] truncate flex-1 min-w-0">
           {title}
         </div>
-        <span className="text-[10px] tabular-nums font-semibold text-[var(--muted)]">
+        {todos.length > 0 && (
+          <CopyButton
+            size="xs"
+            className="opacity-50 hover:opacity-100 border-0"
+            getText={() =>
+              todos
+                .map((t, i) => {
+                  const body = t.text + (t.description ? `\n   ${t.description.replace(/\n/g, "\n   ")}` : "");
+                  return `${i + 1}. ${body}`;
+                })
+                .join("\n")
+            }
+            aria-label={d.copyColumn}
+            title={d.copyColumn}
+          />
+        )}
+        <span className="text-[10px] tabular-nums font-semibold text-[var(--muted)] shrink-0">
           {todos.length}
         </span>
       </div>
@@ -328,14 +348,14 @@ function KanbanColumn({
       <button
         onClick={onAdd}
         className={[
-          "mt-auto flex items-center justify-center gap-1 py-1.5 rounded-lg",
+          "mt-auto flex items-center justify-center gap-1.5 py-1.5 rounded-lg",
           "text-[11px] text-[var(--muted)] hover:text-[var(--foreground)]",
           "hover:bg-[var(--surface-2)] transition-colors cursor-pointer",
         ].join(" ")}
         aria-label="add task"
       >
-        <Plus className="h-3 w-3" />
-        {addHint}
+        <Plus className="h-3 w-3" strokeWidth={2.5} />
+        <span>{addHint}</span>
       </button>
     </div>
   );
@@ -398,6 +418,12 @@ function TodoCard({
         <Chip tone="muted" className="text-[9px] px-1.5 py-0">
           {catLabel}
         </Chip>
+        {todo.description && (
+          <AlignLeft
+            className="h-3 w-3 text-[var(--muted)] shrink-0 ml-auto"
+            aria-label="has description"
+          />
+        )}
       </div>
     </div>
   );
@@ -414,6 +440,7 @@ function AddTodoDialog({
   const d = t.dash.tasks;
   const j = t.dash.jobs;
   const [text, setText] = useState("");
+  const [description, setDescription] = useState("");
   const [cat, setCat]   = useState("general");
   const [pri, setPri]   = useState("medium");
 
@@ -422,13 +449,19 @@ function AddTodoDialog({
 
   const save = async () => {
     if (!text.trim()) return;
-    await jPost("/api/dashboard/todos", { text: text.trim(), category: cat, priority: pri, status });
+    await jPost("/api/dashboard/todos", {
+      text: text.trim(),
+      description: description.trim() || undefined,
+      category: cat,
+      priority: pri,
+      status,
+    });
     onSaved();
   };
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent onClose={onClose}>
+      <DialogContent onClose={onClose} className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{d.cols[status]}</DialogTitle>
         </DialogHeader>
@@ -436,12 +469,19 @@ function AddTodoDialog({
           <Input
             value={text}
             onChange={e => setText(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && save()}
+            onKeyDown={e => e.key === "Enter" && !e.shiftKey && save()}
             placeholder={d.placeholder}
             autoFocus
           />
+          <Textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder={d.descPlaceholder}
+            rows={5}
+            className="resize-y min-h-[110px]"
+          />
           <div>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">Category</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">{d.category}</div>
             <div className="flex gap-1.5 flex-wrap">
               {CATS.map(c => (
                 <Pill key={c} size="sm" active={cat === c} onClick={() => setCat(c)}>
@@ -451,7 +491,7 @@ function AddTodoDialog({
             </div>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">Priority</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">{d.priority}</div>
             <div className="flex gap-1.5">
               {PRIS.map(p => (
                 <Pill key={p} size="sm" active={pri === p} onClick={() => setPri(p)}>
@@ -484,6 +524,7 @@ function EditTodoDialog({
   const d = t.dash.tasks;
   const j = t.dash.jobs;
   const [text, setText] = useState("");
+  const [description, setDescription] = useState("");
   const [cat, setCat]   = useState("general");
   const [pri, setPri]   = useState("medium");
   const [status, setStatus] = useState<TodoStatus>("todo");
@@ -491,6 +532,7 @@ function EditTodoDialog({
   useEffect(() => {
     if (todo) {
       setText(todo.text);
+      setDescription(todo.description ?? "");
       setCat(todo.category);
       setPri(todo.priority);
       setStatus(todo.status);
@@ -504,7 +546,13 @@ function EditTodoDialog({
 
   const save = async () => {
     if (!text.trim()) return;
-    await jPatch("/api/dashboard/todos", { id: todo.id, text: text.trim(), category: cat, priority: pri });
+    await jPatch("/api/dashboard/todos", {
+      id: todo.id,
+      text: text.trim(),
+      description,
+      category: cat,
+      priority: pri,
+    });
     if (status !== todo.status) {
       await jPatch("/api/dashboard/todos", { id: todo.id, status });
     }
@@ -513,7 +561,7 @@ function EditTodoDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent onClose={onClose}>
+      <DialogContent onClose={onClose} className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{d.cols[status]}</DialogTitle>
         </DialogHeader>
@@ -524,8 +572,15 @@ function EditTodoDialog({
             placeholder={d.placeholder}
             autoFocus
           />
+          <Textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder={d.descPlaceholder}
+            rows={6}
+            className="resize-y min-h-[140px]"
+          />
           <div>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">Status</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">{d.status}</div>
             <div className="flex gap-1.5">
               {TODO_STATUSES.map(s => (
                 <Pill key={s} size="sm" active={status === s} onClick={() => setStatus(s)}>
@@ -535,7 +590,7 @@ function EditTodoDialog({
             </div>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">Category</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">{d.category}</div>
             <div className="flex gap-1.5 flex-wrap">
               {CATS.map(c => (
                 <Pill key={c} size="sm" active={cat === c} onClick={() => setCat(c)}>
@@ -545,7 +600,7 @@ function EditTodoDialog({
             </div>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">Priority</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">{d.priority}</div>
             <div className="flex gap-1.5">
               {PRIS.map(p => (
                 <Pill key={p} size="sm" active={pri === p} onClick={() => setPri(p)}>
@@ -576,3 +631,4 @@ function EditTodoDialog({
     </Dialog>
   );
 }
+

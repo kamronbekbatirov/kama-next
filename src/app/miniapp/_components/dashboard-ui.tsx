@@ -1,7 +1,8 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { type ReactNode, type ButtonHTMLAttributes } from "react";
+import { useState, type ReactNode, type ButtonHTMLAttributes, type MouseEvent } from "react";
+import { Check, Copy } from "lucide-react";
 
 /**
  * SectionHeader — eyebrow + optional right-side action.
@@ -247,5 +248,50 @@ export function MetricRow({
       <span className="text-xs text-[var(--muted)]">{label}</span>
       <span className={cn("text-sm font-semibold tabular-nums", colorClass)}>{value}</span>
     </div>
+  );
+}
+
+/**
+ * CopyButton — small icon button that copies a generated string to the
+ * clipboard. The text is built lazily so callers don't have to keep a
+ * snapshot in render. Shows a green check for ~1.2s after success.
+ */
+export function CopyButton({
+  getText,
+  className,
+  size = "sm",
+  ...rest
+}: {
+  getText: () => string;
+  className?: string;
+  size?: "xs" | "sm" | "md";
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
+  const [copied, setCopied] = useState(false);
+  const sz = { xs: "h-6 w-6", sm: "h-8 w-8", md: "h-9 w-9" }[size];
+  const ic = { xs: "h-3 w-3", sm: "h-3.5 w-3.5", md: "h-4 w-4" }[size];
+  const onClick = async (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(getText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch { /* clipboard blocked — silently no-op */ }
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center justify-center rounded-md shrink-0",
+        "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)]",
+        "border border-[var(--card-border)] transition-colors cursor-pointer",
+        "disabled:opacity-40 disabled:cursor-not-allowed",
+        sz,
+        className,
+      )}
+      {...rest}
+    >
+      {copied ? <Check className={cn(ic, "text-emerald-500")} /> : <Copy className={ic} />}
+    </button>
   );
 }
