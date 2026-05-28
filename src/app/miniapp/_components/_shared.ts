@@ -7,6 +7,7 @@ export type TodoStatus = "todo" | "doing" | "done";
 export interface Todo {
   id: number;
   text: string;
+  description: string | null;
   done: boolean;
   category: string;
   priority: string;

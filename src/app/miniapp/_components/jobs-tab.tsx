@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { useLang } from "@/components/providers";
 import { api, jPost, jPatch, jDel, STATUS_TONE, type Application } from "./_shared";
-import { SectionHeader, Pill, EmptyState, Chip, SoftCard } from "./dashboard-ui";
+import { SectionHeader, Pill, EmptyState, Chip, SoftCard, CopyButton } from "./dashboard-ui";
 
 export function JobsTab() {
   const { t } = useLang();
@@ -39,10 +39,20 @@ export function JobsTab() {
       <Card className="p-5">
         <div className="flex items-baseline justify-between mb-4">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--muted)] font-medium">Pipeline</div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--muted)] font-medium">{d.pipeline}</div>
             <div className="text-3xl font-bold tabular-nums tracking-tight mt-0.5">{total}</div>
           </div>
           <div className="flex items-center gap-2">
+            <CopyButton
+              disabled={total === 0}
+              getText={() =>
+                apps
+                  .map((a, i) => `${i + 1}. ${a.company} — ${a.role} [${d.st[a.status as keyof typeof d.st] ?? a.status}]${a.notes ? `\n   ${a.notes.replace(/\n/g, "\n   ")}` : ""}`)
+                  .join("\n")
+              }
+              aria-label={d.copyAll}
+              title={d.copyAll}
+            />
             <Pill size="sm" active={filter === "all"} onClick={() => setFilter("all")}>
               {d.all}
             </Pill>
@@ -79,7 +89,7 @@ export function JobsTab() {
                       <Chip tone={STATUS_TONE[s] === "outline" ? "muted" : (STATUS_TONE[s] as "success"|"warning"|"danger"|"info")}>
                         {d.st[s]}
                       </Chip>
-                      {filter === s && <span className="text-[10px] text-[var(--muted)]">filtering</span>}
+                      {filter === s && <span className="text-[10px] text-[var(--muted)]">{d.filtering}</span>}
                     </div>
                     <div className="text-xs tabular-nums font-semibold">{c}</div>
                   </div>

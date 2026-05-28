@@ -67,7 +67,7 @@ function LogContent() {
         <div className="flex items-center justify-between gap-3">
           <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--muted)] font-medium">
             <Calendar className="inline h-3 w-3 mr-1.5" />
-            Date
+            {d.dateLabel}
           </div>
           <Input
             type="date"
@@ -84,7 +84,6 @@ function LogContent() {
           {[
             { key: "what_worked"   as const, q: d.q1 },
             { key: "tomorrow_task" as const, q: d.q2 },
-            { key: "visa_progress" as const, q: d.q3 },
             { key: "notes"         as const, q: d.notes },
           ].map(({ key, q }) => (
             <div key={key}>

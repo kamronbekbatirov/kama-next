@@ -16,7 +16,7 @@ export async function GET() {
   try {
     await auth();
     const rows = await query(
-      `SELECT id, text, category, priority, done, done_at, status, position, archived, created_at
+      `SELECT id, text, description, category, priority, done, done_at, status, position, archived, created_at
        FROM todos
        ORDER BY status, position ASC, created_at DESC`
     );
@@ -29,15 +29,16 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     await auth();
-    const { text, category, priority, status } = await req.json();
+    const { text, description, category, priority, status } = await req.json();
     const st: Status = isStatus(status) ? status : "todo";
+    const desc = typeof description === "string" && description.trim() ? description : null;
     const rows = await query(
-      `INSERT INTO todos (text, category, priority, status, position, done)
-       VALUES ($1, $2, $3, $4,
-         COALESCE((SELECT MIN(position) - 1 FROM todos WHERE status = $4), 0),
-         $4 = 'done')
-       RETURNING id, text, category, priority, done, done_at, status, position, created_at`,
-      [text, category ?? "general", priority ?? "medium", st]
+      `INSERT INTO todos (text, description, category, priority, status, position, done)
+       VALUES ($1, $2, $3, $4, $5,
+         COALESCE((SELECT MIN(position) - 1 FROM todos WHERE status = $5), 0),
+         $5 = 'done')
+       RETURNING id, text, description, category, priority, done, done_at, status, position, archived, created_at`,
+      [text, desc, category ?? "general", priority ?? "medium", st]
     );
     return Response.json(rows[0]);
   } catch (e) {
@@ -107,13 +108,30 @@ export async function PATCH(req: Request) {
       return Response.json({ ok: true });
     }
 
+    // `description` can be explicitly set to "" (empty) to clear it, so we use a
+    // distinct sentinel: undefined -> no change, anything else (including "") -> set.
+    const newDescription =
+      "description" in body
+        ? (typeof body.description === "string" && body.description.trim()
+            ? body.description
+            : null)
+        : undefined;
+
     await query(
       `UPDATE todos SET
          text = COALESCE($1, text),
-         category = COALESCE($2, category),
-         priority = COALESCE($3, priority)
-       WHERE id = $4`,
-      [body.text ?? null, body.category ?? null, body.priority ?? null, body.id]
+         description = CASE WHEN $5::boolean THEN $2 ELSE description END,
+         category = COALESCE($3, category),
+         priority = COALESCE($4, priority)
+       WHERE id = $6`,
+      [
+        body.text ?? null,
+        newDescription ?? null,
+        body.category ?? null,
+        body.priority ?? null,
+        newDescription !== undefined,
+        body.id,
+      ]
     );
     return Response.json({ ok: true });
   } catch (e) {

@@ -358,12 +358,20 @@ export interface ChatResult {
 
 /**
  * Runs a Claude conversation turn with the tool-use loop.
- * Loops until the model emits an `end_turn` (no more tool calls) or hits MAX_TOOL_ITERATIONS.
+ *
+ * `userMessage` is either a plain string (text-only turn) or a Claude
+ * content-block array, which is how we feed in images and PDF documents
+ * alongside a text question.
+ *
+ * Loops until the model emits an `end_turn` (no more tool calls) or hits
+ * MAX_TOOL_ITERATIONS.
  */
+export type UserMessageInput = string | Array<Anthropic.ContentBlockParam>;
+
 export async function runChat(
   systemPrompt: string,
   history: ChatTurn[],
-  userMessage: string,
+  userMessage: UserMessageInput,
 ): Promise<ChatResult> {
   const messages: Anthropic.MessageParam[] = [
     ...history.map(t => ({ role: t.role, content: t.content })),
