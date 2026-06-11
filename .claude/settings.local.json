@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(cp /var/www/kama-next/Нау*.pdf /tmp/learning_guide.pdf)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(sed -n '727,752p' src/lib/i18n.ts)",
+      "Bash(awk 'NR>=1010 && /tasks:/ {print NR\": \"$0}' src/lib/i18n.ts)"
     ]
   }
 }

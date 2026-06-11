@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, ChevronRight, ChevronDown, BookOpen, Clock, Trash2, ArrowLeft, Pencil } from "lucide-react";
+import { Plus, ChevronRight, ChevronDown, BookOpen, Clock, Trash2, ArrowLeft, Pencil, Sprout } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -78,7 +78,7 @@ export function TreePane() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {subjects.length === 0 && (
             <Card className="col-span-full text-center py-10">
-              <div className="text-3xl mb-2">🌱</div>
+              <Sprout className="h-8 w-8 mx-auto mb-2 text-[var(--muted)]" aria-hidden />
               <div className="text-sm font-semibold">{l.tree.emptySubjectsTitle}</div>
               <div className="text-xs text-[var(--muted)] mt-1">{l.tree.emptySubjectsHint}</div>
             </Card>
