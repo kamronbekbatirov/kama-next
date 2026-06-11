@@ -1,20 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Archive, ArchiveRestore, ChevronDown, ChevronRight, AlignLeft } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Plus, Trash2, Archive, ArchiveRestore, ChevronDown, ChevronRight, AlignLeft, GripVertical, Clock, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
   PointerSensor,
   TouchSensor,
-  closestCorners,
+  pointerWithin,
+  rectIntersection,
   useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
+  type DraggableSyntheticListeners,
+  type CollisionDetection,
 } from "@dnd-kit/core";
-import { useSortable } from "@dnd-kit/sortable";
+import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { useLang } from "@/components/providers";
 import {
   api, jPost, jPatch, jDel,
+  isoToLocalInput, localInputToIso, fmtDue, isOverdue,
   TODO_STATUSES, type Todo, type TodoStatus,
 } from "./_shared";
 import { Pill, Chip, IconButton, CopyButton } from "./dashboard-ui";
@@ -34,6 +38,31 @@ const PRIORITY_DOT: Record<string, string> = {
   low: "bg-emerald-500",
 };
 
+// Drop target = whatever is under the finger/cursor (a card, or the column it's
+// held over). `pointerWithin` is reliable on touch and for the narrow 3-column
+// layout where corner-distance heuristics would otherwise snap back to the
+// source column; `rectIntersection` is the fallback when the pointer is briefly
+// outside every droppable (e.g. mid-fling).
+const collisionDetection: CollisionDetection = (args) => {
+  const pointer = pointerWithin(args);
+  return pointer.length > 0 ? pointer : rectIntersection(args);
+};
+
+// True on touch / pen devices (no precise hover). On those, the whole card is
+// not the drag source — a dedicated grip handle is — so the page can still
+// scroll when the finger lands anywhere else on the card.
+function useCoarsePointer() {
+  const [coarse, setCoarse] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setCoarse(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return coarse;
+}
+
 export function TasksTab() {
   const { t } = useLang();
   const d = t.dash.tasks;
@@ -42,6 +71,7 @@ export function TasksTab() {
   const [addingTo, setAddingTo] = useState<TodoStatus | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const coarse = useCoarsePointer();
 
   const load = useCallback(async () => {
     const data = await api("/api/dashboard/todos");
@@ -49,12 +79,13 @@ export function TasksTab() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  // Mobile drag was laggy because the TouchSensor delay was high enough that
-  // the page would scroll first; cutting the delay and widening the tolerance
-  // makes a long-press pick up the card almost immediately.
+  // On touch the drag is started from a dedicated grip handle (which sets
+  // touch-action: none), so the browser never mistakes a drag for a scroll.
+  // A small distance threshold means the card lifts as soon as the finger moves
+  // on the handle — no long-press delay, and the rest of the card still scrolls.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor,   { activationConstraint: { delay: 120, tolerance: 12 } }),
+    useSensor(TouchSensor,   { activationConstraint: { distance: 8 } }),
   );
 
   const archived = useMemo(() => todos.filter(t => t.archived), [todos]);
@@ -154,7 +185,7 @@ export function TasksTab() {
     <div className="flex flex-col gap-3 pt-2 animate-fade-in">
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
       >
@@ -167,6 +198,7 @@ export function TasksTab() {
               title={d.cols[status]}
               emptyHint={d.emptyColumn}
               addHint={d.addHere}
+              coarse={coarse}
               onAdd={() => setAddingTo(status)}
               onCardClick={(todo) => setEditing(todo)}
             />
@@ -280,13 +312,14 @@ function ArchiveSection({
 }
 
 function KanbanColumn({
-  status, todos, title, emptyHint, addHint, onAdd, onCardClick,
+  status, todos, title, emptyHint, addHint, coarse, onAdd, onCardClick,
 }: {
   status: TodoStatus;
   todos: Todo[];
   title: string;
   emptyHint: string;
   addHint: string;
+  coarse: boolean;
   onAdd: () => void;
   onCardClick: (todo: Todo) => void;
 }) {
@@ -330,14 +363,17 @@ function KanbanColumn({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        {todos.map(todo => (
-          <SortableTodoCard
-            key={todo.id}
-            todo={todo}
-            catLabel={d.cats[todo.category as keyof typeof d.cats] ?? todo.category}
-            onClick={() => onCardClick(todo)}
-          />
-        ))}
+        <SortableContext items={todos.map(t => t.id)} strategy={verticalListSortingStrategy}>
+          {todos.map(todo => (
+            <SortableTodoCard
+              key={todo.id}
+              todo={todo}
+              catLabel={d.cats[todo.category as keyof typeof d.cats] ?? todo.category}
+              coarse={coarse}
+              onClick={() => onCardClick(todo)}
+            />
+          ))}
+        </SortableContext>
         {todos.length === 0 && (
           <div className="text-[10px] text-center text-[var(--muted)] py-3 italic">
             {emptyHint}
@@ -362,53 +398,69 @@ function KanbanColumn({
 }
 
 function SortableTodoCard({
-  todo, catLabel, onClick,
+  todo, catLabel, coarse, onClick,
 }: {
   todo: Todo;
   catLabel: string;
+  coarse: boolean;
   onClick: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: todo.id });
-  const style = {
+  const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
-    touchAction: "manipulation" as const,
+    // Touch: let the card body scroll the page (drag comes from the handle).
+    // Mouse: the whole card is the drag source.
+    touchAction: coarse ? "pan-y" : "manipulation",
   };
   return (
     <div
       ref={setNodeRef}
       style={style}
       {...attributes}
-      {...listeners}
+      {...(coarse ? {} : listeners)}
       onClick={onClick}
       role="button"
       tabIndex={0}
-      className="cursor-grab active:cursor-grabbing select-none"
+      className={["select-none", coarse ? "" : "cursor-grab active:cursor-grabbing"].join(" ")}
     >
-      <TodoCard todo={todo} catLabel={catLabel} />
+      <TodoCard todo={todo} catLabel={catLabel} dragHandleProps={coarse ? listeners : undefined} />
     </div>
   );
 }
 
 function TodoCard({
-  todo, catLabel, dragging = false,
+  todo, catLabel, dragging = false, dragHandleProps,
 }: {
   todo: Todo;
   catLabel: string;
   dragging?: boolean;
+  dragHandleProps?: DraggableSyntheticListeners;
 }) {
   const isDone = todo.status === "done";
+  const overdue = !isDone && isOverdue(todo.due_at);
   return (
     <div
       className={[
-        "rounded-xl border border-[var(--card-border)] bg-[var(--surface)] p-2.5 shadow-soft",
+        "relative rounded-xl border border-[var(--card-border)] bg-[var(--surface)] p-2.5 shadow-soft",
         "hover:border-[var(--foreground)]/30 transition-colors",
         dragging ? "ring-2 ring-[var(--foreground)]/20 shadow-pop scale-[1.02]" : "",
       ].join(" ")}
     >
+      {dragHandleProps && (
+        <span
+          {...dragHandleProps}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-1 right-1 p-1 rounded-md text-[var(--muted)] hover:text-[var(--foreground)] touch-none cursor-grab active:cursor-grabbing"
+          aria-label="drag to move"
+        >
+          <GripVertical className="h-4 w-4" />
+        </span>
+      )}
       <div className={[
         "text-xs font-medium leading-snug",
+        dragHandleProps ? "pr-5" : "",
         isDone ? "line-through text-[var(--muted)]" : "",
       ].join(" ")}>
         {todo.text}
@@ -418,11 +470,57 @@ function TodoCard({
         <Chip tone="muted" className="text-[9px] px-1.5 py-0">
           {catLabel}
         </Chip>
-        {todo.description && (
-          <AlignLeft
-            className="h-3 w-3 text-[var(--muted)] shrink-0 ml-auto"
-            aria-label="has description"
-          />
+        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          {todo.due_at && (
+            <span
+              className={[
+                "inline-flex items-center gap-0.5 text-[9px] tabular-nums whitespace-nowrap",
+                overdue ? "text-red-500 font-semibold" : "text-[var(--muted)]",
+              ].join(" ")}
+              title={fmtDue(todo.due_at)}
+            >
+              <Clock className="h-2.5 w-2.5" />
+              {fmtDue(todo.due_at)}
+            </span>
+          )}
+          {todo.description && (
+            <AlignLeft className="h-3 w-3 text-[var(--muted)] shrink-0" aria-label="has description" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Optional deadline picker (date + time), shared by the add/edit dialogs.
+function DueField({
+  value, onChange, label, clearLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  label: string;
+  clearLabel: string;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">{label}</div>
+      <div className="flex items-center gap-1.5">
+        <Input
+          type="datetime-local"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="h-10 flex-1"
+        />
+        {value && (
+          <IconButton
+            size="md"
+            variant="outline"
+            onClick={() => onChange("")}
+            aria-label={clearLabel}
+            title={clearLabel}
+          >
+            <X className="h-4 w-4" />
+          </IconButton>
         )}
       </div>
     </div>
@@ -443,6 +541,7 @@ function AddTodoDialog({
   const [description, setDescription] = useState("");
   const [cat, setCat]   = useState("general");
   const [pri, setPri]   = useState("medium");
+  const [due, setDue]   = useState("");
 
   const CATS = Object.keys(d.cats) as (keyof typeof d.cats)[];
   const PRIS = Object.keys(d.prios) as (keyof typeof d.prios)[];
@@ -455,6 +554,7 @@ function AddTodoDialog({
       category: cat,
       priority: pri,
       status,
+      due_at: localInputToIso(due),
     });
     onSaved();
   };
@@ -501,6 +601,7 @@ function AddTodoDialog({
               ))}
             </div>
           </div>
+          <DueField value={due} onChange={setDue} label={d.dueDate} clearLabel={d.dueClear} />
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>{j.cancel}</Button>
@@ -528,6 +629,7 @@ function EditTodoDialog({
   const [cat, setCat]   = useState("general");
   const [pri, setPri]   = useState("medium");
   const [status, setStatus] = useState<TodoStatus>("todo");
+  const [due, setDue]   = useState("");
 
   useEffect(() => {
     if (todo) {
@@ -536,6 +638,7 @@ function EditTodoDialog({
       setCat(todo.category);
       setPri(todo.priority);
       setStatus(todo.status);
+      setDue(isoToLocalInput(todo.due_at));
     }
   }, [todo]);
 
@@ -552,6 +655,7 @@ function EditTodoDialog({
       description,
       category: cat,
       priority: pri,
+      due_at: localInputToIso(due),
     });
     if (status !== todo.status) {
       await jPatch("/api/dashboard/todos", { id: todo.id, status });
@@ -610,6 +714,7 @@ function EditTodoDialog({
               ))}
             </div>
           </div>
+          <DueField value={due} onChange={setDue} label={d.dueDate} clearLabel={d.dueClear} />
         </div>
         <DialogFooter>
           <IconButton size="md" variant="outline" onClick={() => onDeleted(todo.id)} className="mr-auto hover:text-red-500" aria-label="delete">
