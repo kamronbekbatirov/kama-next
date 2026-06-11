@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { query } from "@/lib/db";
 import { TOOL_DEFINITIONS, executeTool } from "@/lib/anthropic-tools";
+import { getServerStatus, type ServerStatus } from "@/lib/server-status";
 
 export const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -17,6 +18,33 @@ function fmtMin(m: number) {
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 function isoToday() { return new Date().toISOString().slice(0, 10); }
+// Notes are stored as rich-text HTML (older / Claude-written notes may be plain
+// text). Flatten to readable text for the snapshot.
+function htmlToText(content: string): string {
+  if (!content) return "";
+  if (!content.includes("<")) return content;
+  return content
+    .replace(/<li[^>]*data-checked="true"[^>]*>/gi, "[x] ")
+    .replace(/<li[^>]*data-checked="false"[^>]*>/gi, "[ ] ")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<(br|\/p|\/div|\/h[1-6]|\/li)\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// `due_at::text` comes back like "2026-06-10 15:30:00+00"; render it in London time.
+function fmtDueLondon(iso: string): string {
+  const d = new Date(iso.replace(" ", "T"));
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+}
 
 interface DashboardSnapshot {
   date: string;
@@ -24,7 +52,7 @@ interface DashboardSnapshot {
   schedule: { id: string; start_min: number; end_min: number; label: string; icon: string }[];
   prayersToday: Record<string, boolean>;
   habitsList: { id: string; label: string; builtin: boolean; done: boolean }[];
-  todos: { id: number; text: string; category: string; priority: string; status: string; created_at: string }[];
+  todos: { id: number; text: string; category: string; priority: string; status: string; created_at: string; due_at: string | null }[];
   recentlyCompletedTodos: { id: number; text: string; category: string; done_at: string }[];
   archivedTodos: { id: number; text: string; category: string; priority: string; status: string }[];
   applications: { id: number; company: string; role: string; status: string; notes: string | null }[];
@@ -67,8 +95,8 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     query<{ habit_id: string; done: boolean }>(
       "SELECT habit_id, done FROM habit_custom_completions WHERE date = $1", [dt]
     ),
-    query<{ id: number; text: string; category: string; priority: string; status: string; created_at: string }>(
-      `SELECT id, text, category, priority, status, created_at FROM todos
+    query<{ id: number; text: string; category: string; priority: string; status: string; created_at: string; due_at: string | null }>(
+      `SELECT id, text, category, priority, status, created_at, due_at::text FROM todos
        WHERE archived = FALSE AND status <> 'done'
        ORDER BY status, position ASC, created_at DESC LIMIT 40`
     ),
@@ -202,8 +230,15 @@ ${snap.schedule.length === 0 ? "(empty)" : snap.schedule.map(b =>
   const todoCol  = snap.todos.filter(t => t.status === "todo");
   const doingCol = snap.todos.filter(t => t.status === "doing");
   if (snap.todos.length > 0) {
-    const fmt = (t: typeof snap.todos[number]) =>
-      `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}`;
+    const fmt = (t: typeof snap.todos[number]) => {
+      let due = "";
+      if (t.due_at) {
+        const d = new Date(t.due_at.replace(" ", "T"));
+        const overdue = !isNaN(d.getTime()) && d.getTime() < Date.now();
+        due = ` (due ${fmtDueLondon(t.due_at)}${overdue ? " — OVERDUE" : ""})`;
+      }
+      return `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}${due}`;
+    };
     const blocks: string[] = [`# Active todos (kanban)`];
     if (todoCol.length > 0)  blocks.push(`## To do (${todoCol.length})\n${todoCol.slice(0, 20).map(fmt).join("\n")}`);
     if (doingCol.length > 0) blocks.push(`## In progress (${doingCol.length})\n${doingCol.slice(0, 20).map(fmt).join("\n")}`);
@@ -306,7 +341,8 @@ ${snap.recentLogs.map(l => {
   if (snap.recentNotes.length > 0) {
     sections.push(`# Recent notes
 ${snap.recentNotes.slice(0, 5).map(n => {
-      const snippet = n.content.length > 200 ? n.content.slice(0, 200) + "…" : n.content;
+      const text = htmlToText(n.content);
+      const snippet = text.length > 200 ? text.slice(0, 200) + "…" : text;
       return `## #${n.id} ${n.title || "(untitled)"}\n${snippet}`;
     }).join("\n\n")}`);
   }
@@ -314,7 +350,69 @@ ${snap.recentNotes.slice(0, 5).map(n => {
   return sections.join("\n\n");
 }
 
-const SYSTEM_INSTRUCTIONS = `You are Kamronbek's personal assistant living inside his private Telegram dashboard. You have full access to every part of his life via the structured snapshot below: schedule, habits, todos, job applications, budget, knowledge trees, methods (WOOP, goals, commitments), and journal.
+const fmtGB = (b: number) => `${(b / 1024 ** 3).toFixed(1)}G`;
+
+/**
+ * Compact "# Server" section for the system prompt. Always present so Claude
+ * has situational awareness; full detail lives behind get_server_status.
+ */
+export function renderServerContext(s: ServerStatus): string {
+  const lines: string[] = ["# Server (Hetzner box running kama.uz and all his other sites)"];
+
+  lines.push(
+    s.alerts.length === 0
+      ? "- Alerts: none — all healthy"
+      : `- ALERTS (${s.alerts.length}): ${s.alerts.map(a => `[${a.severity}] ${a.message}`).join("; ")}`,
+  );
+
+  if (s.host) {
+    const memPct = Math.round((s.host.mem.used_b / Math.max(s.host.mem.total_b, 1)) * 100);
+    const diskPct = Math.round((s.host.disk.used / Math.max(s.host.disk.total, 1)) * 100);
+    const swapPct = s.host.swap.total_b > 0
+      ? Math.round((s.host.swap.used_b / s.host.swap.total_b) * 100) : 0;
+    lines.push(
+      `- Host: CPU ${s.host.cpu_pct.toFixed(0)}% (load ${s.host.load[0]?.toFixed(2)}${s.host.cores ? `/${s.host.cores}` : ""}), ` +
+      `RAM ${memPct}% (${fmtGB(s.host.mem.used_b)}/${fmtGB(s.host.mem.total_b)}), disk ${diskPct}%, ` +
+      `swap ${swapPct}%, up ${Math.floor(s.host.uptime_s / 86400)}d`,
+    );
+  }
+
+  const svcDown = s.services.filter(x => x.active === false);
+  lines.push(`- Services: ${s.services.length - svcDown.length}/${s.services.length} active${
+    svcDown.length ? ` — DOWN: ${svcDown.map(x => x.unit).join(", ")}` : ""}`);
+
+  const domDown = s.domains.filter(x => x.ok === false);
+  lines.push(`- Domains: ${s.domains.length - domDown.length}/${s.domains.length} ok${
+    domDown.length ? ` — DOWN: ${domDown.map(x => `${x.host} (${x.error ?? "?"})`).join(", ")}` : ""}`);
+
+  const bkStr = Object.entries(s.ops?.backups?.clusters ?? {})
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([ver, b]) => `PG${ver} ${b.age_s == null ? "missing" : `${Math.floor(b.age_s / 3600)}h ago`}`)
+    .join(", ");
+  if (bkStr) lines.push(`- Backups: ${bkStr}`);
+
+  const apt = s.ops?.apt;
+  const jrn = s.ops?.journal;
+  const f2b = s.ops?.fail2ban;
+  const sec: string[] = [];
+  if (apt) sec.push(`${apt.pending_security ?? "?"} security updates pending${apt.reboot_required ? ", REBOOT REQUIRED" : ""}`);
+  if (f2b?.banned_now != null) sec.push(`fail2ban ${f2b.banned_now} banned`);
+  if (jrn) {
+    sec.push(`SSH logins 24h: ${jrn.ssh_accepted_24h}${jrn.ssh_last_ip ? ` (last ${jrn.ssh_last_ip})` : ""}`);
+    sec.push(`OOM 24h: ${jrn.oom_kills_24h}`);
+  }
+  if (sec.length) lines.push(`- Security: ${sec.join("; ")}`);
+
+  const va = s.ops?.vuln_audit;
+  if (va?.critical != null) {
+    lines.push(`- Deps audit: C=${va.critical} H=${va.high}${va.flagged?.length ? ` — ${va.flagged.join("; ")}` : ""}`);
+  }
+
+  lines.push("(Per-service/per-domain detail, SSL days, DB sizes — via the get_server_status tool.)");
+  return lines.join("\n");
+}
+
+const SYSTEM_INSTRUCTIONS = `You are Kamronbek's personal assistant living inside his private Telegram dashboard. You have full access to every part of his life via the structured snapshot below: schedule, habits, todos, job applications, budget, knowledge trees, methods (WOOP, goals, commitments), journal — and a live summary of his Hetzner server (the infra behind kama.uz and his other sites).
 
 You also have TOOLS to MODIFY anything in his dashboard. Use them whenever he asks you to add, change, complete, or delete something — don't ask for permission for routine changes. After running a tool, briefly confirm in plain language what you did. For destructive operations on substantial data (deleting whole subjects/trees, deleting many applications), confirm first if intent is ambiguous.
 
@@ -324,6 +422,7 @@ Tool-use principles:
 - Tasks Kamronbek wants to keep but not actively work on (months-out items, on-hold ideas) go to the archive via archive_todo. They stay searchable in the snapshot but disappear from the board.
 - Habits: prayers (fajr/dhuhr/asr/maghrib/isha) are always 5 fixed columns — use mark_habit. Other habits come from his habit_defs list (shown under "Tracked habits"); builtin ones (marked with *) also use mark_habit with their column id; non-builtin (custom) use mark_custom_habit with the habit_id string.
 - If the user asks for something modified across multiple items, run multiple tool calls in sequence.
+- get_server_status returns the full live infra picture (per-service, per-domain, SSL days, DB sizes, backups, security counters). The "# Server" section below is only a summary — call the tool when he asks for server/site details, and read its alerts list before declaring everything fine.
 - After tools succeed, summarise what you did. Don't dump tool output verbatim.
 - If a tool fails, explain why; don't silently retry the same call.
 
@@ -343,8 +442,13 @@ export interface ChatTurn {
 }
 
 export async function buildSystemPrompt(): Promise<string> {
-  const snap = await getDashboardSnapshot();
-  return `${SYSTEM_INSTRUCTIONS}\n\n${renderContext(snap)}`;
+  const [snap, server] = await Promise.all([
+    getDashboardSnapshot(),
+    // Server section is best-effort: a collector hiccup must not kill the chat.
+    getServerStatus().catch(() => null),
+  ]);
+  const serverSection = server ? `\n\n${renderServerContext(server)}` : "";
+  return `${SYSTEM_INSTRUCTIONS}\n\n${renderContext(snap)}${serverSection}`;
 }
 
 export interface ChatResult {

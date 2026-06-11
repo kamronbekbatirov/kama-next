@@ -1,6 +1,9 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { query } from "@/lib/db";
+import { getServerStatus } from "@/lib/server-status";
 import { computeNextReview, masteryFromState, statusFromHistory, type RecallScore } from "@/lib/learn/spaced-repetition";
+import { SCHEDULE_ICON_KEYS, resolveIconKey } from "@/lib/schedule-icons";
+import { markdownToHtml } from "@/lib/notes-format";
 
 type Tool = Anthropic.Tool;
 
@@ -27,6 +30,10 @@ export const TOOL_DEFINITIONS: Tool[] = [
           type: "string",
           enum: ["todo", "doing", "done"],
           description: "Kanban column. Default 'todo'.",
+        },
+        due_at: {
+          type: "string",
+          description: "Optional deadline as an ISO 8601 datetime WITH a timezone offset. Kamronbek is in Europe/London (BST = +01:00 in summer, GMT = +00:00 in winter). Use the current London date/time from the snapshot to resolve relative dates. Example: '2026-06-10T15:30:00+01:00'. Omit if there is no deadline.",
         },
       },
       required: ["text"],
@@ -67,6 +74,10 @@ export const TOOL_DEFINITIONS: Tool[] = [
           enum: ["todo", "doing", "done"],
           description: "Move card to this kanban column.",
         },
+        due_at: {
+          type: "string",
+          description: "Set or replace the deadline: ISO 8601 datetime WITH a timezone offset (Europe/London — +01:00 summer, +00:00 winter), e.g. '2026-06-10T15:30:00+01:00'. Pass an empty string \"\" to remove the deadline. Omit to leave it unchanged.",
+        },
       },
       required: ["id"],
     },
@@ -103,7 +114,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
         label: { type: "string" },
         start_min: { type: "integer", minimum: 0, maximum: 1440 },
         end_min: { type: "integer", minimum: 0, maximum: 1440 },
-        icon: { type: "string", description: "Single emoji" },
+        icon: { type: "string", enum: [...SCHEDULE_ICON_KEYS], description: "Icon key (lucide). Pick the closest match." },
       },
       required: ["label", "start_min", "end_min", "icon"],
     },
@@ -118,7 +129,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
         label: { type: "string" },
         start_min: { type: "integer", minimum: 0, maximum: 1440 },
         end_min: { type: "integer", minimum: 0, maximum: 1440 },
-        icon: { type: "string" },
+        icon: { type: "string", enum: [...SCHEDULE_ICON_KEYS], description: "Icon key (lucide)." },
       },
       required: ["id"],
     },
@@ -340,25 +351,25 @@ export const TOOL_DEFINITIONS: Tool[] = [
   },
   {
     name: "add_note",
-    description: "Create a new note.",
+    description: "Create a new note. The note editor is rich-text, so `content` may use Markdown and it will render formatted: **bold**, *italic*, `inline code`, headings (#, ##), bullet lists (- ), numbered lists (1. ), to-do checklists (- [ ] open, - [x] done), > quotes, and [links](https://…).",
     input_schema: {
       type: "object",
       properties: {
         title: { type: "string" },
-        content: { type: "string" },
+        content: { type: "string", description: "Note body. Markdown is supported (see tool description) — use - [ ] for to-do items, - for bullets, 1. for numbered lists, **text** for bold." },
       },
       required: ["content"],
     },
   },
   {
     name: "update_note",
-    description: "Update an existing note's title or content.",
+    description: "Update an existing note's title or content. `content` supports the same Markdown formatting as add_note (bold, bullet/numbered lists, - [ ] to-do checklists, headings, links). Passing content REPLACES the whole note body.",
     input_schema: {
       type: "object",
       properties: {
         id: { type: "integer" },
         title: { type: "string" },
-        content: { type: "string" },
+        content: { type: "string", description: "New note body (replaces existing). Markdown supported." },
       },
       required: ["id"],
     },
@@ -517,6 +528,13 @@ export const TOOL_DEFINITIONS: Tool[] = [
       required: ["habit_id", "label"],
     },
   },
+  // ─── SERVER ────────────────────────────────────────────────────────────────
+  {
+    name: "get_server_status",
+    description:
+      "Live status of Kamronbek's Hetzner server (the box serving kama.uz and all his other sites). Returns JSON with: host CPU/RAM/disk/swap/network, every systemd service (active, RSS, uptime), every domain (reachability, HTTP status, latency, SSL days left), both PostgreSQL clusters with per-database sizes, backup freshness, pending security updates / reboot-required, fail2ban bans, SSH logins (24h), OOM kills, the npm dependency-vulnerability audit, and the derived alerts list. The system prompt only carries a short summary — call this whenever he asks for details about the server, hosting, a specific site being up/down, certificates, backups, or infra security.",
+    input_schema: { type: "object", properties: {} },
+  },
 ];
 
 // ─── EXECUTOR ────────────────────────────────────────────────────────────────
@@ -526,6 +544,17 @@ interface Input { [k: string]: unknown }
 function isoToday() { return new Date().toISOString().slice(0, 10); }
 function asInt(v: unknown): number | null { const n = typeof v === "number" ? v : parseInt(String(v)); return isNaN(n) ? null : n; }
 function asStr(v: unknown): string | null { return typeof v === "string" ? v : null; }
+// ISO 8601 string (ideally with an offset) -> Date instant, or null to clear.
+function parseDue(v: unknown): Date | null {
+  if (v === null || v === undefined || v === "") return null;
+  const d = new Date(String(v));
+  return isNaN(d.getTime()) ? null : d;
+}
+function fmtDueLondon(d: Date): string {
+  return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+}
 
 export async function executeTool(name: string, input: Input): Promise<string> {
   switch (name) {
@@ -535,16 +564,18 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       if (!text) return "Error: text required";
       const status = asStr(input.status) ?? "todo";
       const validStatus = ["todo", "doing", "done"].includes(status) ? status : "todo";
-      const rows = await query<{ id: number; text: string; category: string; priority: string; status: string }>(
-        `INSERT INTO todos (text, category, priority, status, position, done)
+      const due = parseDue(input.due_at);
+      const rows = await query<{ id: number; text: string; category: string; priority: string; status: string; due_at: Date | null }>(
+        `INSERT INTO todos (text, category, priority, status, position, done, due_at)
          VALUES ($1, $2, $3, $4,
            COALESCE((SELECT MIN(position) - 1 FROM todos WHERE status = $4), 0),
-           $4 = 'done')
-         RETURNING id, text, category, priority, status`,
-        [text, asStr(input.category) ?? "general", asStr(input.priority) ?? "medium", validStatus]
+           $4 = 'done', $5)
+         RETURNING id, text, category, priority, status, due_at`,
+        [text, asStr(input.category) ?? "general", asStr(input.priority) ?? "medium", validStatus, due]
       );
       const t = rows[0];
-      return `Added todo #${t.id}: "${t.text}" [${t.priority.toUpperCase()}, ${t.category}, ${t.status}]`;
+      const dueNote = t.due_at ? `, due ${fmtDueLondon(new Date(t.due_at))}` : "";
+      return `Added todo #${t.id}: "${t.text}" [${t.priority.toUpperCase()}, ${t.category}, ${t.status}${dueNote}]`;
     }
     case "complete_todo": {
       const id = asInt(input.id);
@@ -581,6 +612,9 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       if (!id) return "Error: id required";
       const newStatus = asStr(input.status);
       const validStatus = newStatus && ["todo", "doing", "done"].includes(newStatus) ? newStatus : null;
+      // due_at present in the call -> set (a falsy value clears it); absent -> leave.
+      const dueProvided = "due_at" in input;
+      const newDue = dueProvided ? parseDue(input.due_at) : null;
       await query(
         `UPDATE todos SET
            text = COALESCE($2, text),
@@ -601,9 +635,10 @@ export async function executeTool(name: string, input: Input): Promise<string> {
              WHEN $5 = 'done' AND NOT done THEN NOW()
              WHEN $5 IS NOT NULL AND $5 <> 'done' THEN NULL
              ELSE done_at
-           END
+           END,
+           due_at = CASE WHEN $6::boolean THEN $7 ELSE due_at END
          WHERE id = $1`,
-        [id, asStr(input.text), asStr(input.category), asStr(input.priority), validStatus]
+        [id, asStr(input.text), asStr(input.category), asStr(input.priority), validStatus, dueProvided, newDue]
       );
       return `Updated todo #${id}`;
     }
@@ -630,8 +665,9 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       const label = asStr(input.label);
       const start = asInt(input.start_min);
       const end = asInt(input.end_min);
-      const icon = asStr(input.icon);
-      if (!label || start === null || end === null || !icon) return "Error: label, start_min, end_min, icon required";
+      const rawIcon = asStr(input.icon);
+      if (!label || start === null || end === null || !rawIcon) return "Error: label, start_min, end_min, icon required";
+      const icon = resolveIconKey(rawIcon);
       const id = `c_${Date.now()}`;
       await query(
         `INSERT INTO schedule_blocks (id, start_min, end_min, label, icon, position)
@@ -643,6 +679,8 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "update_schedule_block": {
       const id = asStr(input.id);
       if (!id) return "Error: id required";
+      const rawIcon = asStr(input.icon);
+      const icon = rawIcon != null ? resolveIconKey(rawIcon) : null;
       await query(
         `UPDATE schedule_blocks SET
            label = COALESCE($2, label),
@@ -651,7 +689,7 @@ export async function executeTool(name: string, input: Input): Promise<string> {
            icon = COALESCE($5, icon),
            updated_at = NOW()
          WHERE id = $1`,
-        [id, asStr(input.label), asInt(input.start_min), asInt(input.end_min), asStr(input.icon)]
+        [id, asStr(input.label), asInt(input.start_min), asInt(input.end_min), icon]
       );
       return `Updated schedule block ${id}`;
     }
@@ -664,17 +702,17 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "reset_schedule": {
       await query("DELETE FROM schedule_blocks");
       const defaults = [
-        ["s_fajr", 420, 450, "Фаджр + Коран", "🕌", 0],
-        ["s_walk", 450, 480, "Утренняя прогулка", "🚶", 1],
-        ["s_workout", 480, 510, "Домашняя тренировка", "💪", 2],
-        ["s_breakfast", 510, 540, "Завтрак", "🍳", 3],
-        ["s_work", 540, 780, "Основная работа", "💻", 4],
-        ["s_lunch", 780, 840, "Обед + Зухр", "🍽️", 5],
-        ["s_comms", 840, 900, "Коммуникации", "💬", 6],
-        ["s_skills", 900, 960, "Навыки", "📚", 7],
-        ["s_freelance", 960, 1080, "Фриланс", "💼", 8],
-        ["s_evening", 1080, 1200, "Вечерняя рутина", "🌙", 9],
-        ["s_isha", 1200, 1320, "Рефлексия + Иша", "🤲", 10],
+        ["s_fajr", 420, 450, "Фаджр + Коран", "night", 0],
+        ["s_walk", 450, 480, "Утренняя прогулка", "walk", 1],
+        ["s_workout", 480, 510, "Домашняя тренировка", "dumbbell", 2],
+        ["s_breakfast", 510, 540, "Завтрак", "breakfast", 3],
+        ["s_work", 540, 780, "Основная работа", "laptop", 4],
+        ["s_lunch", 780, 840, "Обед + Зухр", "meal", 5],
+        ["s_comms", 840, 900, "Коммуникации", "chat", 6],
+        ["s_skills", 900, 960, "Навыки", "book", 7],
+        ["s_freelance", 960, 1080, "Фриланс", "briefcase", 8],
+        ["s_evening", 1080, 1200, "Вечерняя рутина", "moon", 9],
+        ["s_isha", 1200, 1320, "Рефлексия + Иша", "pray", 10],
       ];
       for (const r of defaults) {
         await query(
@@ -875,8 +913,9 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       return `Saved journal log for ${date}`;
     }
     case "add_note": {
-      const content = asStr(input.content);
-      if (!content) return "Error: content required";
+      const raw = asStr(input.content);
+      if (!raw) return "Error: content required";
+      const content = markdownToHtml(raw); // Markdown -> rich-text HTML for the editor
       const rows = await query<{ id: number }>(
         "INSERT INTO notes (title, content, updated_at) VALUES ($1, $2, NOW()) RETURNING id",
         [asStr(input.title) ?? "", content]
@@ -886,13 +925,15 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "update_note": {
       const id = asInt(input.id);
       if (!id) return "Error: id required";
+      const raw = asStr(input.content);
+      const content = raw != null ? markdownToHtml(raw) : null;
       await query(
         `UPDATE notes SET
            title = COALESCE($2, title),
            content = COALESCE($3, content),
            updated_at = NOW()
          WHERE id = $1`,
-        [id, asStr(input.title), asStr(input.content)]
+        [id, asStr(input.title), content]
       );
       return `Updated note #${id}`;
     }
@@ -1042,6 +1083,12 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       );
       if (rows.length === 0) return `No habit with id ${habitId}`;
       return `Renamed habit ${habitId} → "${label}"`;
+    }
+
+    // ─── SERVER ─────────────
+    case "get_server_status": {
+      const status = await getServerStatus();
+      return JSON.stringify(status);
     }
 
     default:
