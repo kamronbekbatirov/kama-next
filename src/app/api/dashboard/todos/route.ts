@@ -12,11 +12,20 @@ async function auth() {
   if (!s?.authenticated) throw new Error("unauthorized");
 }
 
+// Accepts an ISO 8601 string (or "" / null to clear). Returns a Date for the
+// instant, or null. The UI sends a UTC ISO string built from the user's local
+// wall-clock pick; Claude sends ISO 8601 with an explicit offset.
+function parseDue(v: unknown): Date | null {
+  if (v === null || v === undefined || v === "") return null;
+  const d = new Date(String(v));
+  return isNaN(d.getTime()) ? null : d;
+}
+
 export async function GET() {
   try {
     await auth();
     const rows = await query(
-      `SELECT id, text, description, category, priority, done, done_at, status, position, archived, created_at
+      `SELECT id, text, description, category, priority, done, done_at, status, position, archived, created_at, due_at
        FROM todos
        ORDER BY status, position ASC, created_at DESC`
     );
@@ -29,16 +38,17 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     await auth();
-    const { text, description, category, priority, status } = await req.json();
+    const { text, description, category, priority, status, due_at } = await req.json();
     const st: Status = isStatus(status) ? status : "todo";
     const desc = typeof description === "string" && description.trim() ? description : null;
+    const due = parseDue(due_at);
     const rows = await query(
-      `INSERT INTO todos (text, description, category, priority, status, position, done)
+      `INSERT INTO todos (text, description, category, priority, status, position, done, due_at)
        VALUES ($1, $2, $3, $4, $5,
          COALESCE((SELECT MIN(position) - 1 FROM todos WHERE status = $5), 0),
-         $5 = 'done')
-       RETURNING id, text, description, category, priority, done, done_at, status, position, archived, created_at`,
-      [text, desc, category ?? "general", priority ?? "medium", st]
+         $5 = 'done', $6)
+       RETURNING id, text, description, category, priority, done, done_at, status, position, archived, created_at, due_at`,
+      [text, desc, category ?? "general", priority ?? "medium", st, due]
     );
     return Response.json(rows[0]);
   } catch (e) {
@@ -117,12 +127,18 @@ export async function PATCH(req: Request) {
             : null)
         : undefined;
 
+    // Same sentinel idea for due_at: present in body -> set (a falsy value clears
+    // it); absent -> leave unchanged.
+    const dueProvided = "due_at" in body;
+    const newDue = dueProvided ? parseDue(body.due_at) : null;
+
     await query(
       `UPDATE todos SET
          text = COALESCE($1, text),
          description = CASE WHEN $5::boolean THEN $2 ELSE description END,
          category = COALESCE($3, category),
-         priority = COALESCE($4, priority)
+         priority = COALESCE($4, priority),
+         due_at = CASE WHEN $7::boolean THEN $8 ELSE due_at END
        WHERE id = $6`,
       [
         body.text ?? null,
@@ -131,6 +147,8 @@ export async function PATCH(req: Request) {
         body.priority ?? null,
         newDescription !== undefined,
         body.id,
+        dueProvided,
+        newDue,
       ]
     );
     return Response.json({ ok: true });

@@ -9,10 +9,12 @@ import { Separator } from "@/components/ui/separator";
 import { useLang } from "@/components/providers";
 import {
   api, jPost, jPatch, jDel, today, fmtMin, parseTime,
-  PRESET_ICONS, PRAYER_IDS,
+  PRAYER_IDS,
   type HabitsRow, type ScheduleBlock, type HabitDef,
 } from "./_shared";
 import { SectionHeader, Pill, IconButton } from "./dashboard-ui";
+import { ScheduleIcon } from "./schedule-icon";
+import { SCHEDULE_ICON_KEYS, DEFAULT_ICON_KEY } from "@/lib/schedule-icons";
 
 interface ScheduleRow { id: string; start_min: number; end_min: number; label: string; icon: string; position: number; }
 
@@ -27,7 +29,7 @@ export function TodayTab() {
   const [habitDefs, setHabitDefs] = useState<HabitDef[]>([]);
 
   const [editSched, setEditSched] = useState(false);
-  const [newBlock, setNewBlock] = useState({ label: "", start: "", end: "", icon: "📅" });
+  const [newBlock, setNewBlock] = useState({ label: "", start: "", end: "", icon: DEFAULT_ICON_KEY });
   const [newHabit, setNewHabit] = useState("");
   const [iconPickerFor, setIconPickerFor] = useState<string | null>(null);
 
@@ -83,9 +85,9 @@ export function TodayTab() {
     const start = parseTime(newBlock.start), end = parseTime(newBlock.end);
     if (!newBlock.label || start === null || end === null) return;
     const id = `c_${Date.now()}`;
-    const blk = { id, start, end, label: newBlock.label, icon: newBlock.icon || "📅" };
+    const blk = { id, start, end, label: newBlock.label, icon: newBlock.icon || DEFAULT_ICON_KEY };
     setSchedule([...schedule, blk]);
-    setNewBlock({ label: "", start: "", end: "", icon: "📅" });
+    setNewBlock({ label: "", start: "", end: "", icon: DEFAULT_ICON_KEY });
     await jPost("/api/dashboard/schedule", {
       id, start_min: start, end_min: end, label: blk.label, icon: blk.icon,
     });
@@ -159,7 +161,7 @@ export function TodayTab() {
         {current ? (
           <div className="mt-5 pt-5 border-t border-[var(--card-border)]">
             <div className="flex items-center gap-3 mb-3">
-              <div className="text-2xl shrink-0">{current.icon}</div>
+              <ScheduleIcon name={current.icon} className="h-6 w-6 shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium">{d.now}</div>
                 <div className="text-sm font-semibold truncate">{current.label}</div>
@@ -208,9 +210,10 @@ export function TodayTab() {
             <div className="flex gap-2 items-center">
               <button
                 onClick={() => setIconPickerFor(p => p === "new" ? null : "new")}
-                className="w-10 h-10 rounded-xl border border-[var(--card-border)] hover:border-[var(--foreground)]/40 flex items-center justify-center text-xl transition-all shrink-0"
+                className="w-10 h-10 rounded-xl border border-[var(--card-border)] hover:border-[var(--foreground)]/40 flex items-center justify-center transition-all shrink-0"
+                aria-label="pick icon"
               >
-                {newBlock.icon}
+                <ScheduleIcon name={newBlock.icon} className="h-5 w-5" />
               </button>
               <Input
                 value={newBlock.label}
@@ -265,9 +268,10 @@ export function TodayTab() {
                     <div className="flex items-center gap-2 py-1.5 px-2">
                       <button
                         onClick={() => setIconPickerFor(p => p === b.id ? null : b.id)}
-                        className="w-9 h-9 rounded-xl border border-[var(--card-border)] hover:border-[var(--foreground)]/40 flex items-center justify-center text-lg transition-all shrink-0"
+                        className="w-9 h-9 rounded-xl border border-[var(--card-border)] hover:border-[var(--foreground)]/40 flex items-center justify-center transition-all shrink-0"
+                        aria-label="pick icon"
                       >
-                        {b.icon}
+                        <ScheduleIcon name={b.icon} className="h-[18px] w-[18px]" />
                       </button>
                       <div className="text-[10px] text-[var(--muted)] tabular-nums w-20 shrink-0">
                         {fmtMin(b.start)}–{fmtMin(b.end)}
@@ -307,10 +311,13 @@ export function TodayTab() {
                       ].join(" ")}>
                         {fmtMin(b.start)}
                       </div>
-                      <span className={[
-                        "text-lg leading-none shrink-0 transition-transform",
-                        active ? "scale-110" : "",
-                      ].join(" ")}>{b.icon}</span>
+                      <ScheduleIcon
+                        name={b.icon}
+                        className={[
+                          "h-5 w-5 shrink-0 transition-transform",
+                          active ? "scale-110" : "",
+                        ].join(" ")}
+                      />
                       <span className={[
                         "text-sm flex-1 truncate",
                         active ? "font-semibold" : "",
@@ -461,20 +468,24 @@ export function TodayTab() {
 function IconPicker({ value, onSelect }: { value: string; onSelect: (ic: string) => void }) {
   return (
     <div className="grid grid-cols-8 gap-1.5">
-      {PRESET_ICONS.map(ic => (
-        <button
-          key={ic}
-          onClick={() => onSelect(ic)}
-          className={[
-            "aspect-square rounded-xl flex items-center justify-center text-xl transition-all cursor-pointer",
-            value === ic
-              ? "bg-[var(--foreground)] ring-2 ring-[var(--foreground)] scale-105"
-              : "bg-[var(--background)] hover:bg-[var(--surface-2)] hover:scale-105",
-          ].join(" ")}
-        >
-          {ic}
-        </button>
-      ))}
+      {SCHEDULE_ICON_KEYS.map(key => {
+        const selected = value === key;
+        return (
+          <button
+            key={key}
+            onClick={() => onSelect(key)}
+            aria-label={key}
+            className={[
+              "aspect-square rounded-xl flex items-center justify-center transition-all cursor-pointer",
+              selected
+                ? "bg-[var(--foreground)] text-[var(--background)] ring-2 ring-[var(--foreground)] scale-105"
+                : "bg-[var(--background)] text-[var(--foreground)] hover:bg-[var(--surface-2)] hover:scale-105",
+            ].join(" ")}
+          >
+            <ScheduleIcon name={key} className="h-[18px] w-[18px]" />
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -296,12 +296,24 @@ export default function PortfolioPage() {
                     <div className="font-black text-xl sm:text-2xl leading-tight group-hover:text-[var(--background)] transition-colors">
                       {p.name}
                     </div>
+                    {/* Description: expands to its full height on hover (desktop),
+                        and is always shown on touch devices that can't hover.
+                        grid-rows 0fr→1fr animates to the real content height, so
+                        long descriptions are never clipped. */}
                     <div className={cn(
-                      "text-sm text-[var(--muted)] group-hover:text-[var(--background)]/60 transition-colors leading-relaxed mt-1",
-                      "max-h-0 overflow-hidden opacity-0 group-hover:max-h-20 group-hover:opacity-100",
-                      "transition-all duration-300"
+                      "grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out",
+                      "group-hover:grid-rows-[1fr] [@media(hover:none)]:grid-rows-[1fr]"
                     )}>
-                      {p.desc}
+                      <div className="overflow-hidden">
+                        <p className={cn(
+                          "text-sm text-[var(--muted)] leading-relaxed mt-1.5",
+                          "opacity-0 transition-opacity duration-300",
+                          "group-hover:text-[var(--background)]/60 group-hover:opacity-100",
+                          "[@media(hover:none)]:opacity-100"
+                        )}>
+                          {p.desc}
+                        </p>
+                      </div>
                     </div>
                   </div>
 

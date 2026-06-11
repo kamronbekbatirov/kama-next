@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FileText, Plus, Trash2, Save, Check, Calendar, ChevronRight } from "lucide-react";
+import { ArrowLeft, FileText, Plus, Trash2, Save, Check, Calendar, ChevronRight, Moon } from "lucide-react";
+import { NoteEditor } from "./note-editor";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +14,7 @@ import {
   type DailyLog, type HabitsRow, type Note,
 } from "./_shared";
 import { SectionHeader, EmptyState, SoftCard, IconButton, StatBlock } from "./dashboard-ui";
+import { JobsTab } from "./jobs-tab";
 
 export function JournalTab() {
   const [sub, setSub] = useState("log");
@@ -25,11 +27,13 @@ export function JournalTab() {
         <TabsList className="self-start">
           <TabsTrigger value="log">{d.log}</TabsTrigger>
           <TabsTrigger value="notes">{d.notes}</TabsTrigger>
+          <TabsTrigger value="jobs">{d.jobs}</TabsTrigger>
           <TabsTrigger value="history">{d.history}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="log"><LogContent /></TabsContent>
         <TabsContent value="notes"><NotesContent /></TabsContent>
+        <TabsContent value="jobs"><JobsTab /></TabsContent>
         <TabsContent value="history"><HistoryContent /></TabsContent>
       </Tabs>
     </div>
@@ -139,6 +143,22 @@ function LogContent() {
   );
 }
 
+// Notes are stored as HTML (rich editor) but old notes / Claude-written notes
+// may be plain text. Strip tags for the card preview either way.
+function plainText(content: string): string {
+  if (!content) return "";
+  if (!content.includes("<")) return content;
+  return content
+    .replace(/<(br|\/p|\/div|\/li|\/h[1-6])\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ─── NOTES ───────────────────────────────────────────────────────────────────
 function NotesContent() {
   const { t } = useLang();
@@ -207,12 +227,11 @@ function NotesContent() {
           placeholder={d.titlePh}
           className="h-12 text-lg font-semibold border-0 px-0 bg-transparent rounded-none border-b border-[var(--card-border)] focus-visible:ring-0 focus:border-[var(--foreground)]"
         />
-        <Textarea
+        <NoteEditor
+          key={selected?.id ?? "new"}
           value={content}
-          onChange={e => setContent(e.target.value)}
+          onChange={setContent}
           placeholder={d.contentPh}
-          rows={20}
-          className="text-sm border-0 px-0 bg-transparent rounded-none focus-visible:ring-0 resize-none min-h-[400px]"
         />
       </div>
     );
@@ -247,7 +266,7 @@ function NotesContent() {
                 <ChevronRight className="h-4 w-4 text-[var(--muted)] shrink-0 group-hover:text-[var(--foreground)] transition-colors" />
               </div>
               <div className="text-xs text-[var(--muted)] line-clamp-3 mb-2 leading-relaxed">
-                {n.content || "—"}
+                {plainText(n.content) || "—"}
               </div>
               <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
                 {new Date(n.updated_at).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
@@ -454,21 +473,25 @@ function HistoryContent() {
                 >
                   <div className="text-xs font-medium w-28 shrink-0">{dateLabel}</div>
                   <div className="flex gap-4 flex-1 text-xs tabular-nums">
-                    <span className={
+                    <span className={[
+                      "inline-flex items-center gap-1",
                       pDone === totalPrayers ? "text-emerald-500"
                       : pDone === 0 ? "text-[var(--muted)]"
-                      : "text-[var(--foreground)]"
-                    }>
-                      ☽ <span className="font-semibold">{pDone}</span>
+                      : "text-[var(--foreground)]",
+                    ].join(" ")}>
+                      <Moon className="h-3 w-3" aria-hidden />
+                      <span className="font-semibold">{pDone}</span>
                       <span className="text-[var(--muted)]">/{totalPrayers}</span>
                     </span>
                     {totalHabits > 0 && (
-                      <span className={
+                      <span className={[
+                        "inline-flex items-center gap-1",
                         hDone === totalHabits ? "text-emerald-500"
                         : hDone === 0 ? "text-[var(--muted)]"
-                        : "text-[var(--foreground)]"
-                      }>
-                        ✓ <span className="font-semibold">{hDone}</span>
+                        : "text-[var(--foreground)]",
+                      ].join(" ")}>
+                        <Check className="h-3 w-3" aria-hidden />
+                        <span className="font-semibold">{hDone}</span>
                         <span className="text-[var(--muted)]">/{totalHabits}</span>
                       </span>
                     )}

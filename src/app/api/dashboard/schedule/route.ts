@@ -1,18 +1,19 @@
 import { query } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 
+// icon = lucide key, see @/lib/schedule-icons
 const DEFAULT_SCHEDULE = [
-  { id: "s_fajr",      start_min: 420,  end_min: 450,  label: "Фаджр + Коран",      icon: "🕌", position: 0 },
-  { id: "s_walk",      start_min: 450,  end_min: 480,  label: "Утренняя прогулка",   icon: "🚶", position: 1 },
-  { id: "s_workout",   start_min: 480,  end_min: 510,  label: "Домашняя тренировка", icon: "💪", position: 2 },
-  { id: "s_breakfast", start_min: 510,  end_min: 540,  label: "Завтрак",             icon: "🍳", position: 3 },
-  { id: "s_work",      start_min: 540,  end_min: 780,  label: "Основная работа",     icon: "💻", position: 4 },
-  { id: "s_lunch",     start_min: 780,  end_min: 840,  label: "Обед + Зухр",         icon: "🍽️", position: 5 },
-  { id: "s_comms",     start_min: 840,  end_min: 900,  label: "Коммуникации",        icon: "💬", position: 6 },
-  { id: "s_skills",    start_min: 900,  end_min: 960,  label: "Навыки",              icon: "📚", position: 7 },
-  { id: "s_freelance", start_min: 960,  end_min: 1080, label: "Фриланс",             icon: "💼", position: 8 },
-  { id: "s_evening",   start_min: 1080, end_min: 1200, label: "Вечерняя рутина",     icon: "🌙", position: 9 },
-  { id: "s_isha",      start_min: 1200, end_min: 1320, label: "Рефлексия + Иша",     icon: "🤲", position: 10 },
+  { id: "s_fajr",      start_min: 420,  end_min: 450,  label: "Фаджр + Коран",      icon: "night",     position: 0 },
+  { id: "s_walk",      start_min: 450,  end_min: 480,  label: "Утренняя прогулка",   icon: "walk",      position: 1 },
+  { id: "s_workout",   start_min: 480,  end_min: 510,  label: "Домашняя тренировка", icon: "dumbbell",  position: 2 },
+  { id: "s_breakfast", start_min: 510,  end_min: 540,  label: "Завтрак",             icon: "breakfast", position: 3 },
+  { id: "s_work",      start_min: 540,  end_min: 780,  label: "Основная работа",     icon: "laptop",    position: 4 },
+  { id: "s_lunch",     start_min: 780,  end_min: 840,  label: "Обед + Зухр",         icon: "meal",      position: 5 },
+  { id: "s_comms",     start_min: 840,  end_min: 900,  label: "Коммуникации",        icon: "chat",      position: 6 },
+  { id: "s_skills",    start_min: 900,  end_min: 960,  label: "Навыки",              icon: "book",      position: 7 },
+  { id: "s_freelance", start_min: 960,  end_min: 1080, label: "Фриланс",             icon: "briefcase", position: 8 },
+  { id: "s_evening",   start_min: 1080, end_min: 1200, label: "Вечерняя рутина",     icon: "moon",      position: 9 },
+  { id: "s_isha",      start_min: 1200, end_min: 1320, label: "Рефлексия + Иша",     icon: "pray",      position: 10 },
 ];
 
 async function auth() {

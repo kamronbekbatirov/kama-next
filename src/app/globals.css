@@ -100,3 +100,71 @@ body {
   display: flex;
   flex-shrink: 0;
 }
+
+/* ── Note editor (TipTap) ──────────────────────────────────── */
+.tiptap {
+  outline: none;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.tiptap > * + * { margin-top: 0.5rem; }
+.tiptap p { margin: 0; }
+.tiptap h1 { font-size: 1.5rem; font-weight: 800; margin-top: 0.75rem; }
+.tiptap h2 { font-size: 1.25rem; font-weight: 700; margin-top: 0.5rem; }
+.tiptap h3 { font-size: 1.05rem; font-weight: 700; }
+.tiptap strong { font-weight: 700; }
+.tiptap em { font-style: italic; }
+.tiptap s { text-decoration: line-through; }
+.tiptap a { color: var(--foreground); text-decoration: underline; text-underline-offset: 2px; }
+.tiptap code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  background: var(--muted-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+}
+.tiptap blockquote {
+  border-left: 2px solid var(--card-border);
+  padding-left: 0.75rem;
+  color: var(--muted);
+}
+.tiptap ul,
+.tiptap ol { padding-left: 1.4rem; margin: 0.25rem 0; }
+.tiptap ul { list-style: disc; }
+.tiptap ol { list-style: decimal; }
+.tiptap li { margin: 0.15rem 0; }
+.tiptap li p { margin: 0; }
+
+/* Task / to-do list */
+.tiptap ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+.tiptap ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0.2rem 0;
+}
+.tiptap ul[data-type="taskList"] li > label {
+  margin-top: 0.18rem;
+  flex-shrink: 0;
+  user-select: none;
+}
+.tiptap ul[data-type="taskList"] li > div { flex: 1 1 auto; min-width: 0; }
+.tiptap ul[data-type="taskList"] input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--foreground);
+  cursor: pointer;
+}
+.tiptap ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* Empty-editor placeholder (from @tiptap/extension-placeholder) */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

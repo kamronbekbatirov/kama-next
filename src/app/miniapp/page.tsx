@@ -2,25 +2,25 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, CalendarDays, ListChecks, Sprout, Activity, Wallet, Notebook, type LucideIcon } from "lucide-react";
 import { useLang } from "@/components/providers";
 import { TodayTab } from "./_components/today-tab";
 import { TasksTab } from "./_components/tasks-tab";
-import { JobsTab } from "./_components/jobs-tab";
+import { ServerTab } from "./_components/server-tab";
 import { BudgetTab } from "./_components/budget-tab";
 import { JournalTab } from "./_components/journal-tab";
 import { LearnTab } from "./_components/learn";
 import { SettingsModal } from "./_components/settings-modal";
 import { IconButton } from "./_components/dashboard-ui";
 
-type TabId = "today" | "tasks" | "learn" | "jobs" | "budget" | "journal";
-const TABS: { id: TabId; icon: string; key: keyof typeof import("@/lib/i18n").translations.en.dash.tabs }[] = [
-  { id: "today",   icon: "📅", key: "today" },
-  { id: "tasks",   icon: "✅", key: "tasks" },
-  { id: "learn",   icon: "🌳", key: "learn" },
-  { id: "jobs",    icon: "💼", key: "jobs" },
-  { id: "budget",  icon: "💰", key: "budget" },
-  { id: "journal", icon: "📓", key: "journal" },
+type TabId = "today" | "tasks" | "learn" | "server" | "budget" | "journal";
+const TABS: { id: TabId; icon: LucideIcon; key: keyof typeof import("@/lib/i18n").translations.en.dash.tabs }[] = [
+  { id: "today",   icon: CalendarDays, key: "today" },
+  { id: "tasks",   icon: ListChecks,   key: "tasks" },
+  { id: "learn",   icon: Sprout,       key: "learn" },
+  { id: "server",  icon: Activity,     key: "server" },
+  { id: "budget",  icon: Wallet,       key: "budget" },
+  { id: "journal", icon: Notebook,     key: "journal" },
 ];
 
 const VALID_TABS: ReadonlySet<TabId> = new Set(TABS.map(t => t.id));
@@ -98,7 +98,7 @@ export default function DashboardPage() {
         {tab === "today"   && <TodayTab />}
         {tab === "tasks"   && <TasksTab />}
         {tab === "learn"   && <LearnTab />}
-        {tab === "jobs"    && <JobsTab />}
+        {tab === "server"  && <ServerTab />}
         {tab === "budget"  && <BudgetTab />}
         {tab === "journal" && <JournalTab />}
       </main>
@@ -122,7 +122,7 @@ export default function DashboardPage() {
                   : "opacity-50 hover:opacity-100",
               ].join(" ")}
             >
-              <span className="text-lg leading-none">{tb.icon}</span>
+              <tb.icon className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
               <span className={[
                 "text-[8px] uppercase tracking-[0.12em] font-semibold",
                 tab === tb.id ? "text-[var(--foreground)]" : "text-[var(--muted)]",
