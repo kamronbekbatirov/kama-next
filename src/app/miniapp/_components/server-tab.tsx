@@ -11,8 +11,9 @@ import {
 import { translations, type Lang } from "@/lib/i18n";
 import { useLang } from "@/components/providers";
 import { api } from "./_shared";
-import { SectionHeader, SoftCard, StatBlock, Chip, MetricRow } from "./dashboard-ui";
+import { SectionHeader, SoftCard, StatBlock, Chip, MetricRow, Pill } from "./dashboard-ui";
 import { Sparkline } from "./server-sparkline";
+import { AnalyticsTab } from "./analytics-tab";
 
 // ---------- Types ----------------------------------------------------------
 
@@ -570,7 +571,32 @@ function HistoryChart({
 
 // ---------- Main component -------------------------------------------------
 
+/**
+ * ServerTab is a switcher between the infra view and the Umami traffic view,
+ * surfaced as a "Server | Traffic" toggle (instead of a separate bottom-nav
+ * tab). ServerView unmounts when Traffic is active, so its polling stops.
+ */
 export function ServerTab() {
+  const { lang } = useLang();
+  const t = translations[lang as Lang] ?? translations.en;
+  const [view, setView] = useState<"server" | "analytics">("server");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1.5">
+        <Pill size="sm" active={view === "server"} onClick={() => setView("server")}>
+          {t.dash.tabs.server}
+        </Pill>
+        <Pill size="sm" active={view === "analytics"} onClick={() => setView("analytics")}>
+          {t.dash.tabs.analytics}
+        </Pill>
+      </div>
+      {view === "server" ? <ServerView /> : <AnalyticsTab />}
+    </div>
+  );
+}
+
+function ServerView() {
   const { lang } = useLang();
   const t = translations[lang as Lang] ?? translations.en;
 

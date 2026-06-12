@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { TrackingScript } from "@/components/tracking-script";
 import type { Lang } from "@/lib/i18n";
 
 /**
@@ -51,6 +52,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang={initialLang} suppressHydrationWarning>
       <body className="min-h-screen">
         <Providers defaultLang={initialLang}>{children}</Providers>
+        <TrackingScript />
       </body>
     </html>
   );
