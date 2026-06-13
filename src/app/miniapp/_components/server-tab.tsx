@@ -10,7 +10,7 @@ import {
 } from "recharts";
 import { translations, type Lang } from "@/lib/i18n";
 import { useLang } from "@/components/providers";
-import { api } from "./_shared";
+import { api, useHashView } from "./_shared";
 import { SectionHeader, SoftCard, StatBlock, Chip, MetricRow, Pill } from "./dashboard-ui";
 import { Sparkline } from "./server-sparkline";
 import { AnalyticsTab } from "./analytics-tab";
@@ -580,7 +580,7 @@ function HistoryChart({
 export function ServerTab() {
   const { lang } = useLang();
   const t = translations[lang as Lang] ?? translations.en;
-  const [view, setView] = useState<"server" | "analytics" | "inbox">("server");
+  const [view, setView] = useHashView("server", ["server", "analytics", "inbox"], "server");
   const inboxCount = usePolled<{ new: number }>("/api/dashboard/inbox/count", 30000);
   const unread = inboxCount?.new ?? 0;
 
