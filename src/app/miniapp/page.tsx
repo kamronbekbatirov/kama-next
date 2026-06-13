@@ -39,6 +39,7 @@ export default function DashboardPage() {
   const [settings, setSettings] = useState(false);
   const [authed, setAuthed]     = useState(false);
   const [checking, setChecking] = useState(true);
+  const [inboxNew, setInboxNew] = useState(0);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -47,6 +48,20 @@ export default function DashboardPage() {
       .catch(() => router.replace("/miniapp/login"))
       .finally(() => setChecking(false));
   }, [router]);
+
+  // Unread inbox badge on the Server nav button — cheap count, polled.
+  useEffect(() => {
+    if (!authed) return;
+    let cancelled = false;
+    const tick = () =>
+      fetch("/api/dashboard/inbox/count")
+        .then(r => r.json())
+        .then(d => { if (!cancelled) setInboxNew(Number(d?.new ?? 0)); })
+        .catch(() => {});
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [authed]);
 
   // Restore active tab from URL hash on mount, and react to back/forward.
   useEffect(() => {
@@ -116,12 +131,17 @@ export default function DashboardPage() {
               aria-label={d.tabs[tb.key]}
               aria-current={tab === tb.id}
               className={[
-                "flex flex-col items-center gap-0.5 py-2 transition-all cursor-pointer",
+                "relative flex flex-col items-center gap-0.5 py-2 transition-all cursor-pointer",
                 tab === tb.id
                   ? "bg-[var(--surface-2)]"
                   : "opacity-50 hover:opacity-100",
               ].join(" ")}
             >
+              {tb.id === "server" && inboxNew > 0 && (
+                <span className="absolute top-1 right-1/2 translate-x-[14px] min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--accent)] text-[var(--background)] text-[9px] font-bold leading-[15px] tabular-nums text-center pointer-events-none">
+                  {inboxNew > 99 ? "99+" : inboxNew}
+                </span>
+              )}
               <tb.icon className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
               <span className={[
                 "text-[8px] uppercase tracking-[0.12em] font-semibold",
