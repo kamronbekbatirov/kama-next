@@ -2,7 +2,9 @@ import { Resend } from "resend";
 import { insertInboxMessage } from "@/lib/inbox";
 import { query } from "@/lib/db";
 
-const FORWARD_TO = "REDACTED";
+// Optional backup forward of inbound mail to a personal mailbox. Configured via
+// env (kept out of source); when unset, inbound mail just lands in the inbox.
+const FORWARD_TO = process.env.INBOUND_FORWARD_TO || "";
 
 /** "Name <a@b.com>" → { name, email }; bare address or bare name also handled. */
 function parseFrom(raw: string): { name: string | null; email: string | null } {
@@ -101,25 +103,24 @@ export async function POST(req: Request) {
     }
   }
 
-  // 2) Forward to iCloud (unchanged backup channel).
-  const forwardHtml = html || (text ? text.replace(/\n/g, "<br>") : "");
-  const { error } = await resend.emails.send({
-    from: "hi@kama.uz",
-    to: FORWARD_TO,
-    replyTo: from === "unknown" ? undefined : from,
-    subject: `Fwd: ${subject}`,
-    html: `
-      <p style="color:#666;font-size:13px;border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:16px">
-        <strong>From:</strong> ${from}<br>
-        <strong>Subject:</strong> ${subject}
-        ${emailId ? `<br><strong>ID:</strong> ${emailId}` : ""}
-      </p>
-      ${forwardHtml || "<p><em>Body not available — check Resend dashboard.</em></p>"}
-    `,
-  });
-
-  if (error) {
-    return Response.json({ ok: false, error }, { status: 500 });
+  // 2) Optional backup forward to a personal mailbox (only if configured).
+  if (FORWARD_TO) {
+    const forwardHtml = html || (text ? text.replace(/\n/g, "<br>") : "");
+    const { error } = await resend.emails.send({
+      from: "hi@kama.uz",
+      to: FORWARD_TO,
+      replyTo: from === "unknown" ? undefined : from,
+      subject: `Fwd: ${subject}`,
+      html: `
+        <p style="color:#666;font-size:13px;border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:16px">
+          <strong>From:</strong> ${from}<br>
+          <strong>Subject:</strong> ${subject}
+          ${emailId ? `<br><strong>ID:</strong> ${emailId}` : ""}
+        </p>
+        ${forwardHtml || "<p><em>Body not available — check Resend dashboard.</em></p>"}
+      `,
+    });
+    if (error) return Response.json({ ok: false, error }, { status: 500 });
   }
 
   return Response.json({ ok: true });
