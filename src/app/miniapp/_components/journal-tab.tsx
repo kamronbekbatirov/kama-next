@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useLang } from "@/components/providers";
 import {
-  api, jPost, jPatch, jDel, today, getLast,
+  api, jPost, jPatch, jDel, today, getLast, useHashView,
   PRAYER_IDS,
   type DailyLog, type HabitsRow, type Note,
 } from "./_shared";
@@ -17,7 +17,7 @@ import { SectionHeader, EmptyState, SoftCard, IconButton, StatBlock } from "./da
 import { JobsTab } from "./jobs-tab";
 
 export function JournalTab() {
-  const [sub, setSub] = useState("log");
+  const [sub, setSub] = useHashView("journal", ["log", "notes", "jobs", "history"], "log");
   const { t } = useLang();
   const d = t.dash.tabs;
 
