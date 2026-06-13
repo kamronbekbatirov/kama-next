@@ -539,7 +539,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
   {
     name: "get_inbox",
     description:
-      "Read the dashboard inbox: messages submitted through the contact and feedback forms on Kamronbek's sites (kama.uz, humanbase, …). These used to be emailed via Resend; now they land in the database. Returns JSON with counts {new, read, archived} and a list of messages (id, source site, kind contact|feedback, category, name, email, subject, message, status, created_at). The system prompt already shows how many are unread — call this when he asks what's in the inbox, who wrote, what someone said, or to read/triage new submissions.",
+      "Read the dashboard inbox: messages submitted through the contact and feedback forms on Kamronbek's sites (kama.uz, humanbase, …) AND emails received at his domains (e.g. anything sent to hi@kama.uz). Form messages used to be emailed via Resend; now everything lands in the database. Returns JSON with counts {new, read, archived} and a list of messages (id, source site/domain, kind contact|feedback|email, category, name, email, subject, message, status, created_at). The system prompt already shows how many are unread — call this when he asks what's in the inbox, who wrote, what someone said/emailed, or to read/triage new items.",
     input_schema: {
       type: "object",
       properties: {

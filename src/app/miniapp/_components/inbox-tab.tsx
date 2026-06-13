@@ -12,7 +12,7 @@ import { SoftCard, SectionHeader, Pill, Chip, EmptyState, IconButton } from "./d
 interface Msg {
   id: number;
   source: string;
-  kind: "contact" | "feedback";
+  kind: "contact" | "feedback" | "email";
   category: string | null;
   name: string | null;
   email: string | null;
@@ -83,8 +83,8 @@ function MessageCard({
         </div>
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
           <Chip tone="muted">{m.source}</Chip>
-          <Chip tone={m.kind === "feedback" ? "info" : "neutral"}>
-            {m.kind === "feedback" ? t.dash.inbox.feedback : t.dash.inbox.contact}
+          <Chip tone={m.kind === "feedback" ? "info" : m.kind === "email" ? "success" : "neutral"}>
+            {m.kind === "feedback" ? t.dash.inbox.feedback : m.kind === "email" ? t.dash.inbox.email : t.dash.inbox.contact}
             {m.category ? ` · ${m.category}` : ""}
           </Chip>
         </div>
