@@ -76,11 +76,12 @@ export async function POST(req: Request) {
   //    Deduped on the Resend email id so webhook retries don't duplicate.
   if (emailId) {
     try {
-      const dup = await query<{ id: number }>(
-        `SELECT id FROM inbox_messages WHERE meta->>'emailId' = $1 LIMIT 1`,
+      // Dedupe against the tombstone so a deleted message isn't re-created.
+      const seen = await query<{ email_id: string }>(
+        `SELECT email_id FROM inbox_seen_emails WHERE email_id = $1 LIMIT 1`,
         [emailId],
       );
-      if (dup.length === 0) {
+      if (seen.length === 0) {
         const { name, email } = parseFrom(from);
         const message = text || (html ? htmlToText(html) : "") || `(${subject})`;
         await insertInboxMessage({
@@ -90,8 +91,10 @@ export async function POST(req: Request) {
           email,
           subject,
           message,
+          html: html || null,
           meta: { emailId, to: data?.to ?? null, from_raw: from, raw_url: rawUrl || null },
         });
+        await query(`INSERT INTO inbox_seen_emails (email_id) VALUES ($1) ON CONFLICT DO NOTHING`, [emailId]);
       }
     } catch (e) {
       console.error("[inbound] inbox insert failed", e);

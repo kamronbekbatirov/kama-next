@@ -9,7 +9,7 @@ async function auth() {
   if (!s?.authenticated) throw new Error("unauthorized");
 }
 
-const COLS = `id, source, kind, category, name, email, subject, message, meta,
+const COLS = `id, source, kind, category, name, email, subject, message, html, meta,
               ip, user_agent, status, created_at, read_at`;
 
 /**
