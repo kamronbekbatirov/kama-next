@@ -2,7 +2,7 @@
 
 > **My personal portfolio out front. The OS I run my whole life on, behind the login. And Claude has the keys.**
 
-[kama.uz](https://kama.uz) is two products on one codebase. The public side is a bilingual portfolio with a working contact form. The private side is a personal dashboard I open every morning — habits, learning, todos, budget, subscriptions, job applications, journal, notes — and Claude is plugged into it as a first-class operator over Telegram. I send a message like *"add 'pay rent' for tomorrow and mark today's reading habit done"*, and Claude actually does it: it has 39 tool definitions, one for every action my dashboard can perform.
+[kama.uz](https://kama.uz) is two products on one codebase. The public side is a bilingual portfolio with a working contact form. The private side is a personal dashboard I open every morning — habits, learning, todos, budget, subscriptions, job applications, journal, notes, live server monitoring, traffic analytics, and a unified inbox — and Claude is plugged into it as a first-class operator over Telegram. I send a message like *"add 'pay rent' for tomorrow and mark today's reading habit done"*, and Claude actually does it: it has 41 tool definitions, one for every action my dashboard can perform (it can also read live server status and the inbox).
 
 [![Live](https://img.shields.io/badge/live-kama.uz-000?style=flat-square)](https://kama.uz)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)](https://nextjs.org)
@@ -14,7 +14,7 @@
 ## Two surfaces
 
 ### 🌐 Public — `/`
-A bilingual (EN / RU) portfolio with system-aware theming. The contact form goes out via [Resend](https://resend.com); replies come back through a Resend webhook and forward to a personal mailbox.
+A bilingual (EN / RU) portfolio with system-aware theming. The contact form writes straight into the dashboard inbox (no per-message email), and any mail to the domain is pulled in too — see the Inbox module below.
 
 ### 🔒 Private — `/miniapp`
 A personal dashboard. Every byte of state lives in PostgreSQL — the previous version stored everything in `localStorage`, which broke the moment I switched device. Auth is dual-mode:
@@ -33,11 +33,14 @@ A personal dashboard. Every byte of state lives in PostgreSQL — the previous v
 | 📓 **Journal** | Daily log entries |
 | 🧠 **Learn** | Subjects → nodes → spaced-repetition recall, full SM-2 algorithm |
 | 🔬 **Methods** | Personal catalogue of learning techniques |
+| 🖥️ **Server** | Live infra monitoring (CPU/RAM/disk, services, domains, SSL, backups, security counters) with derived alerts |
+| 📈 **Traffic** | Self-hosted [Umami](https://umami.is) analytics for every site, in-dashboard |
+| 📨 **Inbox** | Unified inbox — contact/feedback form submissions and received email; reply & compose via Resend, with a Sent view and threads |
 | ⚙️ **Settings** | Schedule blocks, habits, subscriptions |
 
 ## The Claude coupling
 
-Telegram → my bot → `/api/telegram/webhook` → Claude with **39 tools**, each one mapping onto a single dashboard mutation:
+Telegram → my bot → `/api/telegram/webhook` → Claude with **41 tools** — 39 mapping onto a single dashboard mutation each, plus two read tools (`get_server_status`, `get_inbox`) that surface live infra status and the inbox:
 
 ```
 add_todo            mark_habit          add_application       add_budget_entry
@@ -65,8 +68,9 @@ Conversation history (with token + prompt-cache stats) lives in `telegram_messag
 | UI | React 19, Tailwind CSS 4, shadcn-style primitives |
 | Database | PostgreSQL 16 via the `pg` pool |
 | Auth | Custom HMAC-SHA256 signed cookies (Edge-safe) + Telegram `initData` |
-| AI | Anthropic SDK · Claude Opus 4.7 · prompt caching on |
-| Email | Resend (outbound + inbound webhook) |
+| AI | Anthropic SDK · Claude (Sonnet 4.6 by default, set via `ANTHROPIC_MODEL`) · prompt caching on |
+| Email | Resend — transactional send + inbound receiving API (polled into the inbox) |
+| Analytics | Self-hosted Umami |
 
 ## Run it locally
 
@@ -77,8 +81,7 @@ git clone https://github.com/kamronbekbatirov/kama-next.git
 cd kama-next
 cp .env.example .env.local
 npm install
-psql "$DATABASE_URL" -f migrations/001_learn.sql
-psql "$DATABASE_URL" -f migrations/002_dashboard_db.sql
+for f in migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done
 npm run dev
 ```
 
@@ -110,14 +113,17 @@ src/
 │   ├── robots.ts · sitemap.ts
 │   ├── api/
 │   │   ├── auth/                    login, logout, me, tg (Telegram WebApp init verify)
-│   │   ├── contact/                 POST contact form → Resend
-│   │   ├── inbound/                 Resend webhook → forward inbound mail
+│   │   ├── contact/                 POST public contact form → inbox
+│   │   ├── inbox/                    server-to-server form ingest (secret-gated)
+│   │   ├── inbound/                  Resend inbound webhook → inbox (+ optional forward)
 │   │   ├── telegram/webhook/        Telegram bot webhook (Claude-driven)
-│   │   └── dashboard/               24 endpoints — one per module
+│   │   └── dashboard/               one endpoint group per module
 │   │       ├── todos/ · habits/ · habit-defs/ · habit-custom/
 │   │       ├── schedule/ · settings/ · subscriptions/
 │   │       ├── budget/ · applications/ · log/ · history/
 │   │       ├── notes/ · learn/
+│   │       ├── server/ · analytics/  (live monitoring + Umami traffic)
+│   │       └── inbox/                list · count · sync · reply · sent
 │   └── miniapp/
 │       ├── login/                   Password / Telegram login
 │       └── _components/
@@ -138,11 +144,14 @@ src/
 │   └── utils.ts
 └── middleware.ts                    /miniapp/* gate — redirects unauth → /login
 
-migrations/                          Forward-only SQL migrations
+migrations/                          Forward-only SQL migrations (001–009)
 ├── 001_learn.sql                    subjects · nodes · recall_sessions
-└── 002_dashboard_db.sql             todos · habits · schedule · subscriptions
-                                     · budget · journal · applications · notes
-                                     · telegram_messages
+├── 002_dashboard_db.sql             todos · habits · schedule · subscriptions
+│                                    · budget · journal · applications · notes
+│                                    · telegram_messages
+├── 003–007                          todos kanban/archive/description/due · habits wide
+├── 008_server_metrics.sql           server_metrics · server_snapshot
+└── 009_inbox.sql                    inbox_messages · inbox_seen_emails · sent_messages
 
 public/                              Icons + apple-touch-icon
 ```
@@ -180,8 +189,7 @@ cp .env.example .env.local           # SESSION_SECRET, DATABASE_URL,
                                      # DASHBOARD_PASSWORD, TELEGRAM_*,
                                      # ANTHROPIC_API_KEY, RESEND_API_KEY
 npm install
-psql "$DATABASE_URL" -f migrations/001_learn.sql
-psql "$DATABASE_URL" -f migrations/002_dashboard_db.sql
+for f in migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done
 npm run dev                          # :3000  (public at /, dashboard at /miniapp)
 npm run build && npm start           # production: standalone server.js on :3010
 ```
