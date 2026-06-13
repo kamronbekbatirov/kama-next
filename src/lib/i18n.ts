@@ -165,13 +165,13 @@ export const translations = {
     about: {
       tag: "About",
       title: "A bit about me",
-      p1: "I'm Kamronbek — 23, from Uzbekistan, based in London (REDACTED, REDACTED). I drive every project from idea to live URL: architecture, code, DB schema, systemd unit, Caddy block, ongoing operation.",
+      p1: "I'm Kamronbek — a full-stack developer from Uzbekistan, based in London. I drive every project from idea to live URL: architecture, code, DB schema, systemd unit, Caddy block, ongoing operation.",
       p2: "I don't ship demos. Every project on this page has a domain, a process, a database, and somebody who can use it — including the embedded-C messenger that's a flashed device + a relay running on a Linux box.",
       p3: "I speak Uzbek, Russian and English fluently. Comfortable working solo, asynchronously, and across time zones — most of what's on this page was built that way.",
       cards: ["Education", "Location", "Focus", "Available"],
       cardVals: [
         "BSc CS, Brunel (2:1)",
-        "London REDACTED · REDACTED",
+        "London, UK",
         "Full-stack · AI · embedded",
         "Immediately",
       ],
@@ -193,7 +193,7 @@ export const translations = {
       success: "Message sent! I'll get back to you soon.",
       errorMsg: "Something went wrong. Try emailing me directly.",
     },
-    footer: "Built with care in London",
+    footer: "© 2026 Kamronbek Batirov · London",
     // Dashboard
     dash: {
       title: "Dashboard",
@@ -763,13 +763,13 @@ export const translations = {
     about: {
       tag: "О себе",
       title: "Немного о себе",
-      p1: "Я Камронбек — 23 года, из Узбекистана, живу в Лондоне (REDACTED, REDACTED). Веду каждый проект сам: архитектура, код, схема БД, systemd-юнит, Caddy-блок, поддержка в проде.",
+      p1: "Я Камронбек — full-stack разработчик из Узбекистана, живу в Лондоне. Веду каждый проект сам: архитектура, код, схема БД, systemd-юнит, Caddy-блок, поддержка в проде.",
       p2: "Я не делаю демо. У каждого проекта на этой странице есть домен, процесс, база данных и кто-то, кто им может пользоваться — включая embedded-C мессенджер, у которого есть прошитый девайс и relay на Linux-боксе.",
       p3: "Свободно говорю на узбекском, русском и английском. Привык работать сам, асинхронно и через разные часовые пояса — большинство проектов на этой странице так и сделаны.",
       cards: ["Образование", "Локация", "Фокус", "Готовность"],
       cardVals: [
         "BSc CS, Brunel (2:1)",
-        "Лондон REDACTED · REDACTED",
+        "Лондон, Великобритания",
         "Full-stack · AI · embedded",
         "Немедленно",
       ],
@@ -791,7 +791,7 @@ export const translations = {
       success: "Сообщение отправлено! Отвечу в ближайшее время.",
       errorMsg: "Что-то пошло не так. Напишите мне напрямую.",
     },
-    footer: "Сделано с заботой в Лондоне",
+    footer: "© 2026 Камронбек Батиров · Лондон",
     dash: {
       title: "Дашборд",
       loading: "Загрузка...",
@@ -1360,13 +1360,13 @@ export const translations = {
     about: {
       tag: "Мен ҳақимда",
       title: "Мен ҳақимда озгина",
-      p1: "Мен Камронбек — 23 ёш, Ўзбекистондан, Лондонда яшайман (REDACTED, REDACTED). Ҳар бир лойиҳани ўзим етакчилик қиламан: архитектура, код, БД, systemd, Caddy, production'да қўллаб-қувватлаш.",
+      p1: "Мен Камронбек — Ўзбекистондан full-stack дастурчи, Лондонда яшайман. Ҳар бир лойиҳани ўзим етакчилик қиламан: архитектура, код, БД, systemd, Caddy, production'да қўллаб-қувватлаш.",
       p2: "Демо қилмайман. Бу саҳифадаги ҳар бир лойиҳанинг домени, процесси, базаси бор — ҳатто embedded-C мессенжер ҳам прошивкаланган қурилма + Linux box'даги relay билан ишлайди.",
       p3: "Ўзбек, рус, инглиз тилларида эркин гаплашаман. Ёлғиз, асинхрон ва турли вақт минтақаларида ишлашга ўрганганман — бу саҳифадаги аксарият лойиҳалар шундай қилинган.",
       cards: ["Таълим", "Жойлашув", "Йўналиш", "Тайёрлик"],
       cardVals: [
         "BSc CS, Brunel (2:1)",
-        "Лондон REDACTED · REDACTED",
+        "Лондон, Буюк Британия",
         "Full-stack · AI · embedded",
         "Дарҳол",
       ],
@@ -1388,7 +1388,7 @@ export const translations = {
       success: "Хабар юборилди! Яқинда жавоб бераман.",
       errorMsg: "Хатолик юз берди. Тўғридан-тўғри ёзинг.",
     },
-    footer: "Лондонда меҳнат билан яратилди",
+    footer: "© 2026 Камронбек Батиров · Лондон",
     dash: {
       title: "Дашборд",
       loading: "Юкланмоқда...",

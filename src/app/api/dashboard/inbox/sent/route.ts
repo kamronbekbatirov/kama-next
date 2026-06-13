@@ -40,3 +40,18 @@ export async function GET(req: Request) {
     return Response.json({ error: "error" }, { status: 500 });
   }
 }
+
+/** DELETE — { id }. Remove a sent record (does not unsend the email). */
+export async function DELETE(req: Request) {
+  const s = await getSession();
+  if (!s?.authenticated) return Response.json({ error: "unauthorized" }, { status: 401 });
+  try {
+    const { id } = await req.json();
+    if (!id) return Response.json({ error: "id required" }, { status: 400 });
+    await query(`DELETE FROM sent_messages WHERE id = $1`, [id]);
+    return Response.json({ ok: true });
+  } catch (e) {
+    console.error("inbox sent DELETE:", e instanceof Error ? e.message : String(e));
+    return Response.json({ error: "error" }, { status: 500 });
+  }
+}
