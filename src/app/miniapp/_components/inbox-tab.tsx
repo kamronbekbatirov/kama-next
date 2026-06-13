@@ -324,11 +324,18 @@ export function InboxTab() {
     });
   }, [filter]);
 
-  useEffect(() => {
-    load();
-    const id = setInterval(load, 20000);
-    return () => clearInterval(id);
+  // Pull new received emails from Resend, then refresh the list.
+  const syncAndLoad = useCallback(() => {
+    fetch("/api/dashboard/inbox/sync", { method: "POST" })
+      .catch(() => {})
+      .finally(() => load());
   }, [load]);
+
+  useEffect(() => {
+    syncAndLoad();
+    const id = setInterval(syncAndLoad, 20000);
+    return () => clearInterval(id);
+  }, [syncAndLoad]);
 
   const counts = data?.counts ?? { new: 0, read: 0, archived: 0 };
   const messages = data?.messages ?? [];
