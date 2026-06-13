@@ -62,14 +62,12 @@ export async function POST(req: Request) {
   let html = pick("html");
   let text = pick("text", "plain", "plain_text", "plainText", "body", "content");
   if (!text && !html && emailId) {
-    for (const path of [`/emails/${emailId}`, `/inbound/emails/${emailId}`]) {
-      try {
-        const r = await fetch(`https://api.resend.com${path}`, {
-          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
-        });
-        if (r.ok) { const e = await r.json(); html = e.html || ""; text = e.text || ""; break; }
-      } catch { /* path varies by Resend version — ignore */ }
-    }
+    try {
+      const r = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+      });
+      if (r.ok) { const e = await r.json(); html = e.html || ""; text = e.text || ""; }
+    } catch { /* best-effort */ }
   }
   const rawUrl = pick("raw_url", "raw_email_url", "raw");
 
