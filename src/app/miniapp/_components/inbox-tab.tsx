@@ -259,8 +259,11 @@ function MessageCard({
 
 // ─── A sent message (Sent view) ──────────────────────────────────────────────
 
-function SentCard({ s, t }: { s: Sent; t: T }) {
+function SentCard({ s, t, onChange }: { s: Sent; t: T; onChange: () => void }) {
   const [open, setOpen] = useState(false);
+  const remove = () => {
+    if (confirm(t.dash.inbox.confirmDelete)) jDel("/api/dashboard/inbox/sent", { id: s.id }).then(onChange);
+  };
   return (
     <SoftCard className="px-4 py-3">
       <button onClick={() => setOpen((v) => !v)} className="w-full text-left cursor-pointer">
@@ -279,7 +282,14 @@ function SentCard({ s, t }: { s: Sent; t: T }) {
           {s.body}
         </p>
       </button>
-      {open && s.error && <p className="mt-2 text-xs text-red-500">{s.error}</p>}
+      {open && (
+        <div className="mt-3 pt-3 border-t border-[var(--card-border)] flex items-center gap-2">
+          {s.error && <p className="text-xs text-red-500 truncate">{s.error}</p>}
+          <IconButton size="sm" variant="ghost" className="ml-auto" onClick={remove} aria-label={t.dash.inbox.delete}>
+            <Trash2 size={15} className="text-red-500" />
+          </IconButton>
+        </div>
+      )}
     </SoftCard>
   );
 }
@@ -363,7 +373,7 @@ export function InboxTab() {
         ) : sent.length === 0 ? (
           <EmptyState icon={<Send size={26} />} title={t.dash.inbox.emptySent} />
         ) : (
-          <div className="space-y-2">{sent.map((s) => <SentCard key={s.id} s={s} t={t} />)}</div>
+          <div className="space-y-2">{sent.map((s) => <SentCard key={s.id} s={s} t={t} onChange={load} />)}</div>
         )
       ) : data == null ? (
         <div className="text-center text-[var(--muted)] py-10 text-sm">{t.dash.loading}</div>
