@@ -27,7 +27,8 @@ const VALID_TABS: ReadonlySet<TabId> = new Set(TABS.map(t => t.id));
 
 function readTabFromHash(): TabId {
   if (typeof window === "undefined") return "today";
-  const h = window.location.hash.replace(/^#/, "");
+  // Hash is `#<tab>` or `#<tab>/<sub>` — the main tab is the first segment.
+  const h = window.location.hash.replace(/^#/, "").split("/")[0];
   return VALID_TABS.has(h as TabId) ? (h as TabId) : "today";
 }
 

@@ -120,3 +120,41 @@ export function useLS<T>(key: string, def: T): [T, (v: T) => void] {
   const set = useCallback((v: T) => { setVal(v); try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }, [key]);
   return [val, set];
 }
+
+// ─── HASH SUB-VIEW PERSISTENCE ───────────────────────────────────────────────
+// The URL hash is `#<tab>` or `#<tab>/<sub>` (e.g. "#server/inbox"). The main
+// nav owns the first segment; sub-tabbed panes own the second via useHashView,
+// so reloading keeps you on the same pane. The hash is client-only (never sent
+// to the server), so this is purely a UX nicety with no security impact.
+function getHashSub(): string | null {
+  if (typeof window === "undefined") return null;
+  const parts = window.location.hash.replace(/^#/, "").split("/");
+  return parts[1] || null;
+}
+
+export function useHashView(
+  tab: string,
+  valid: readonly string[],
+  fallback: string,
+): [string, (v: string) => void] {
+  const [view, setView] = useState<string>(fallback);
+  useEffect(() => {
+    const sync = () => {
+      const sub = getHashSub();
+      setView(sub && valid.includes(sub) ? sub : fallback);
+    };
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+    // `valid` is a stable literal at each call site; tab/fallback are constants.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, fallback]);
+  const set = useCallback((v: string) => {
+    setView(v);
+    if (typeof window !== "undefined") {
+      const target = `#${tab}/${v}`;
+      if (window.location.hash !== target) history.replaceState(null, "", target);
+    }
+  }, [tab]);
+  return [view, set];
+}

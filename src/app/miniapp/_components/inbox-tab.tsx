@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Archive, ArchiveRestore, CornerUpLeft, Inbox as InboxIcon, Mail,
-  PenSquare, Reply, Send, Trash2, X,
+  PenSquare, Reply, RotateCw, Send, Trash2, X,
 } from "lucide-react";
 import { translations, type Lang } from "@/lib/i18n";
 import { useLang } from "@/components/providers";
@@ -354,6 +354,7 @@ export function InboxTab() {
   const [sent, setSent] = useState<Sent[] | null>(null);
   const [senders, setSenders] = useState<string[]>(["hi@kama.uz"]);
   const [composing, setComposing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     api("/api/dashboard/inbox/reply").then((r) => {
@@ -387,6 +388,14 @@ export function InboxTab() {
     return () => clearInterval(id);
   }, [syncAndLoad]);
 
+  // Manual refresh — pull new mail now, with a spinner.
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await fetch("/api/dashboard/inbox/sync", { method: "POST" }); } catch {}
+    load();
+    setRefreshing(false);
+  }, [load]);
+
   const counts = data?.counts ?? { new: 0, read: 0, archived: 0 };
   const messages = data?.messages ?? [];
 
@@ -405,8 +414,16 @@ export function InboxTab() {
         <Pill size="sm" active={filter === "sent"} onClick={() => setFilter("sent")}>{t.dash.inbox.sent}</Pill>
         <Pill size="sm" active={filter === "archived"} onClick={() => setFilter("archived")}>{t.dash.inbox.archived}</Pill>
         <button
+          onClick={refresh}
+          disabled={refreshing}
+          aria-label={t.dash.inbox.refresh}
+          className="ml-auto inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium border border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)] hover:border-[var(--foreground)]/30 disabled:opacity-50 transition"
+        >
+          <RotateCw size={13} className={refreshing ? "animate-spin" : ""} /> {t.dash.inbox.refresh}
+        </button>
+        <button
           onClick={() => setComposing((v) => !v)}
-          className="ml-auto inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full text-xs font-medium bg-[var(--foreground)] text-[var(--background)] hover:opacity-85 transition"
+          className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full text-xs font-medium bg-[var(--foreground)] text-[var(--background)] hover:opacity-85 transition"
         >
           {composing ? <X size={13} /> : <PenSquare size={13} />} {t.dash.inbox.compose}
         </button>

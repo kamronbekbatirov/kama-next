@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useLang } from "@/components/providers";
+import { useHashView } from "../_shared";
 import { TreePane } from "./tree";
 import { MethodsPane } from "./methods";
 import { ProtocolPane } from "./protocol";
 import { GoalsPane } from "./goals";
 
 export function LearnTab() {
-  const [view, setView] = useState("tree");
+  const [view, setView] = useHashView("learn", ["tree", "methods", "protocol", "goals"], "tree");
   const { t } = useLang();
   const l = t.dash.learn;
 
