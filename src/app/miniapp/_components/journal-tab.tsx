@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FileText, Plus, Trash2, Save, Check, Calendar, ChevronRight, Moon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, FileText, Plus, Trash2, Save, Check, Loader2, Calendar, ChevronRight, Moon } from "lucide-react";
 import { NoteEditor } from "./note-editor";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -168,42 +168,133 @@ function NotesContent() {
   const [isNew, setIsNew]     = useState(false);
   const [title, setTitle]     = useState("");
   const [content, setContent] = useState("");
-  const [saving, setSaving]   = useState(false);
+  const [status, setStatus]   = useState<"idle"|"saving"|"saved"|"unsaved">("idle");
+  // Stable key for the editor across an editing session — so a new note getting
+  // its id mid-typing doesn't remount the editor and drop the cursor.
+  const [editorKey, setEditorKey] = useState("new");
+
+  // Autosave plumbing — refs avoid stale closures and create/update races.
+  const idRef      = useRef<number|null>(null);          // current note id (null = unsaved new)
+  const stateRef   = useRef({ title: "", content: "" }); // latest editor content
+  const savedRef   = useRef({ title: "", content: "" }); // last persisted content
+  const savingRef  = useRef(false);                      // a save is in flight
+  const pendingRef = useRef(false);                      // edits arrived during a save
+  const editingRef = useRef(false);                      // editor view open?
 
   const load = useCallback(async () => {
     const data = await api("/api/dashboard/notes");
     if (Array.isArray(data)) setNotes(data);
   }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { stateRef.current = { title, content }; }, [title, content]);
 
-  const openNew = () => { setSelected(null); setIsNew(true); setTitle(""); setContent(""); };
-  const openNote = (n: Note) => { setSelected(n); setIsNew(false); setTitle(n.title); setContent(n.content); };
-
-  const save = async () => {
-    setSaving(true);
-    if (isNew) {
-      const c = await jPost("/api/dashboard/notes", { title, content });
-      setSelected(c); setIsNew(false);
-    } else if (selected) {
-      const u = await jPatch("/api/dashboard/notes", { id: selected.id, title, content });
-      setSelected(u);
+  const flush = useCallback(async () => {
+    if (!editingRef.current) return;
+    const { title: ti, content: co } = stateRef.current;
+    if (savedRef.current.title === ti && savedRef.current.content === co) return;     // unchanged
+    if (idRef.current === null && !ti.trim() && !plainText(co).trim()) return;        // don't create empty
+    if (savingRef.current) { pendingRef.current = true; return; }                     // coalesce
+    savingRef.current = true;
+    setStatus("saving");
+    try {
+      if (idRef.current === null) {
+        const c = await jPost("/api/dashboard/notes", { title: ti, content: co });
+        if (c?.id) { idRef.current = c.id; setSelected(c); setIsNew(false); }
+      } else {
+        await jPatch("/api/dashboard/notes", { id: idRef.current, title: ti, content: co });
+      }
+      savedRef.current = { title: ti, content: co };
+      setStatus("saved");
+      load();
+    } catch {
+      setStatus("unsaved");
+    } finally {
+      savingRef.current = false;
+      if (pendingRef.current) { pendingRef.current = false; flush(); }                // edits during save
     }
-    setSaving(false); load();
+  }, [load]);
+
+  // Debounced autosave on edits — skips the programmatic set made when opening a note.
+  useEffect(() => {
+    if (!editingRef.current) return;
+    if (savedRef.current.title === title && savedRef.current.content === content) return;
+    setStatus("unsaved");
+    const id = setTimeout(() => { void flush(); }, 700);
+    return () => clearTimeout(id);
+  }, [title, content, flush]);
+
+  // Best-effort save when the tab/page is closed (keepalive survives unload),
+  // and a final save when this component unmounts (e.g. switching sub-tab).
+  useEffect(() => {
+    const beacon = () => {
+      if (!editingRef.current) return;
+      const { title: ti, content: co } = stateRef.current;
+      if (savedRef.current.title === ti && savedRef.current.content === co) return;
+      if (idRef.current === null && !ti.trim() && !plainText(co).trim()) return;
+      fetch("/api/dashboard/notes", {
+        method: idRef.current === null ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(idRef.current === null ? { title: ti, content: co } : { id: idRef.current, title: ti, content: co }),
+        keepalive: true,
+      });
+      savedRef.current = { title: ti, content: co };
+    };
+    window.addEventListener("beforeunload", beacon);
+    return () => { window.removeEventListener("beforeunload", beacon); beacon(); };
+  }, []);
+
+  const openNew = () => {
+    editingRef.current = true; idRef.current = null;
+    savedRef.current = { title: "", content: "" };
+    setSelected(null); setIsNew(true); setTitle(""); setContent(""); setStatus("idle");
+    setEditorKey(`new-${Date.now()}`);
+  };
+  const openNote = (n: Note) => {
+    editingRef.current = true; idRef.current = n.id;
+    savedRef.current = { title: n.title, content: n.content };
+    setSelected(n); setIsNew(false); setTitle(n.title); setContent(n.content); setStatus("saved");
+    setEditorKey(`note-${n.id}`);
+  };
+  const closeEditor = async () => {
+    await flush();
+    editingRef.current = false;
+    setSelected(null); setIsNew(false); setStatus("idle");
   };
 
   if (isNew || selected) {
     return (
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2">
-          <IconButton size="md" variant="ghost" onClick={() => { setSelected(null); setIsNew(false); }} aria-label="back">
+          <IconButton size="md" variant="ghost" onClick={() => { void closeEditor(); }} aria-label="back">
             <ArrowLeft className="h-4 w-4" />
           </IconButton>
+
+          {/* Live autosave status — click to save immediately */}
+          {status !== "idle" && (
+            <button
+              type="button"
+              onClick={() => void flush()}
+              title={status === "unsaved" ? d.save : undefined}
+              className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${
+                status === "saved" ? "text-emerald-500"
+                : status === "saving" ? "text-[var(--muted)]"
+                : "text-yellow-500"
+              }`}
+            >
+              {status === "saving" ? <Loader2 className="h-3 w-3 animate-spin" />
+                : status === "saved" ? <Check className="h-3 w-3" />
+                : <span className="h-1.5 w-1.5 rounded-full bg-yellow-500" />}
+              {status === "saving" ? d.saving : status === "saved" ? d.saved : d.unsaved}
+            </button>
+          )}
+
           <div className="flex gap-2 ml-auto">
             {selected && (
               <button
                 onClick={async () => {
                   await jDel("/api/dashboard/notes", { id: selected.id });
-                  setSelected(null); setIsNew(false); load();
+                  editingRef.current = false;
+                  setSelected(null); setIsNew(false); setStatus("idle"); load();
                 }}
                 className="h-9 px-4 rounded-full border border-red-500/40 text-red-500 text-xs font-semibold hover:bg-red-500 hover:text-white transition-all flex items-center gap-1.5"
               >
@@ -211,14 +302,6 @@ function NotesContent() {
                 {d.del}
               </button>
             )}
-            <button
-              onClick={save}
-              disabled={saving}
-              className="h-9 px-4 rounded-full bg-[var(--foreground)] text-[var(--background)] text-xs font-semibold hover:opacity-85 transition-opacity disabled:opacity-30 flex items-center gap-1.5"
-            >
-              <Save className="h-3.5 w-3.5" />
-              {d.save}
-            </button>
           </div>
         </div>
         <Input
@@ -228,7 +311,7 @@ function NotesContent() {
           className="h-12 text-lg font-semibold border-0 px-0 bg-transparent rounded-none border-b border-[var(--card-border)] focus-visible:ring-0 focus:border-[var(--foreground)]"
         />
         <NoteEditor
-          key={selected?.id ?? "new"}
+          key={editorKey}
           value={content}
           onChange={setContent}
           placeholder={d.contentPh}
