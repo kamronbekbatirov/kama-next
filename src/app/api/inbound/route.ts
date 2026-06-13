@@ -1,10 +1,6 @@
-import { Resend } from "resend";
 import { insertInboxMessage } from "@/lib/inbox";
 import { query } from "@/lib/db";
-
-// Optional backup forward of inbound mail to a personal mailbox. Configured via
-// env (kept out of source); when unset, inbound mail just lands in the inbox.
-const FORWARD_TO = process.env.INBOUND_FORWARD_TO || "";
+import { forwardInbound } from "@/lib/mail";
 
 /** "Name <a@b.com>" → { name, email }; bare address or bare name also handled. */
 function parseFrom(raw: string): { name: string | null; email: string | null } {
@@ -39,13 +35,13 @@ function htmlToText(html: string): string {
 }
 
 /**
- * Resend inbound webhook. Emails sent to hi@kama.uz (and any other domain whose
- * MX points at Resend) now (1) land in the dashboard inbox and (2) are still
- * forwarded to iCloud as a backup channel. The body is always fetched from
- * Resend — never trusted from the POST — so a forged webhook can't inject text.
+ * Resend inbound webhook. Emails to hi@kama.uz (and any domain whose MX points
+ * at Resend) (1) land in the dashboard inbox and (2) are forwarded once to the
+ * personal mailbox (INBOUND_FORWARD_TO). Forwarding also runs from the polling
+ * sync (lib/inbox-sync), which is the reliable path since this webhook is not
+ * always delivered. Both gate the forward on first ingest, so it fires once.
  */
 export async function POST(req: Request) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
   const payload = await req.json();
 
   // Resend sends: { type: "email.received", data: { email_id, from, to, subject, text?, html?, ... } }
@@ -97,30 +93,12 @@ export async function POST(req: Request) {
           meta: { emailId, to: data?.to ?? null, from_raw: from, raw_url: rawUrl || null },
         });
         await query(`INSERT INTO inbox_seen_emails (email_id) VALUES ($1) ON CONFLICT DO NOTHING`, [emailId]);
+        // Forward a copy to the personal mailbox (once, on first ingest).
+        await forwardInbound({ from, subject, html, text });
       }
     } catch (e) {
       console.error("[inbound] inbox insert failed", e);
     }
-  }
-
-  // 2) Optional backup forward to a personal mailbox (only if configured).
-  if (FORWARD_TO) {
-    const forwardHtml = html || (text ? text.replace(/\n/g, "<br>") : "");
-    const { error } = await resend.emails.send({
-      from: "hi@kama.uz",
-      to: FORWARD_TO,
-      replyTo: from === "unknown" ? undefined : from,
-      subject: `Fwd: ${subject}`,
-      html: `
-        <p style="color:#666;font-size:13px;border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:16px">
-          <strong>From:</strong> ${from}<br>
-          <strong>Subject:</strong> ${subject}
-          ${emailId ? `<br><strong>ID:</strong> ${emailId}` : ""}
-        </p>
-        ${forwardHtml || "<p><em>Body not available — check Resend dashboard.</em></p>"}
-      `,
-    });
-    if (error) return Response.json({ ok: false, error }, { status: 500 });
   }
 
   return Response.json({ ok: true });

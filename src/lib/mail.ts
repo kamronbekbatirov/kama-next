@@ -81,3 +81,34 @@ export async function sendAndStore(input: SendInput): Promise<SendResult> {
   if (status === "failed") return { ok: false, error: error ?? "Send failed" };
   return { ok: true, id: rows[0].id };
 }
+
+/**
+ * Best-effort forward of a received email to a personal mailbox
+ * (INBOUND_FORWARD_TO). Called once per newly-ingested email so the user gets a
+ * copy in their normal inbox in addition to the dashboard. No-op when unset.
+ */
+export async function forwardInbound(opts: {
+  from: string;
+  subject: string;
+  html?: string;
+  text?: string;
+}): Promise<void> {
+  const to = process.env.INBOUND_FORWARD_TO;
+  if (!to) return;
+  const body = opts.html || (opts.text ? escapeHtml(opts.text).replace(/\n/g, "<br>") : "");
+  try {
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    await resend.emails.send({
+      from: "hi@kama.uz",
+      to,
+      replyTo: opts.from && opts.from !== "unknown" ? opts.from : undefined,
+      subject: `Fwd: ${opts.subject}`,
+      html:
+        `<p style="color:#666;font-size:13px;border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:16px">` +
+        `<strong>From:</strong> ${escapeHtml(opts.from)}<br><strong>Subject:</strong> ${escapeHtml(opts.subject)}</p>` +
+        (body || "<p><em>Body not available — open the dashboard inbox.</em></p>"),
+    });
+  } catch (e) {
+    console.error("[forward] failed", e);
+  }
+}
