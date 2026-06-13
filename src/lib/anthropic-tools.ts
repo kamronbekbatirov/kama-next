@@ -535,6 +535,23 @@ export const TOOL_DEFINITIONS: Tool[] = [
       "Live status of Kamronbek's Hetzner server (the box serving kama.uz and all his other sites). Returns JSON with: host CPU/RAM/disk/swap/network, every systemd service (active, RSS, uptime), every domain (reachability, HTTP status, latency, SSL days left), both PostgreSQL clusters with per-database sizes, backup freshness, pending security updates / reboot-required, fail2ban bans, SSH logins (24h), OOM kills, the npm dependency-vulnerability audit, and the derived alerts list. The system prompt only carries a short summary — call this whenever he asks for details about the server, hosting, a specific site being up/down, certificates, backups, or infra security.",
     input_schema: { type: "object", properties: {} },
   },
+  // ─── INBOX ───────────────────────────────────────────────────────────────────
+  {
+    name: "get_inbox",
+    description:
+      "Read the dashboard inbox: messages submitted through the contact and feedback forms on Kamronbek's sites (kama.uz, humanbase, …). These used to be emailed via Resend; now they land in the database. Returns JSON with counts {new, read, archived} and a list of messages (id, source site, kind contact|feedback, category, name, email, subject, message, status, created_at). The system prompt already shows how many are unread — call this when he asks what's in the inbox, who wrote, what someone said, or to read/triage new submissions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["new", "read", "archived", "all"],
+          description: "Which bucket to read. Default 'new' (unread only).",
+        },
+        limit: { type: "number", description: "Max messages to return (default 20, max 100)." },
+      },
+    },
+  },
 ];
 
 // ─── EXECUTOR ────────────────────────────────────────────────────────────────
@@ -1089,6 +1106,30 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "get_server_status": {
       const status = await getServerStatus();
       return JSON.stringify(status);
+    }
+
+    // ─── INBOX ─────────────
+    case "get_inbox": {
+      const status = asStr(input.status) ?? "new";
+      const limit = Math.min(Math.max(asInt(input.limit) ?? 20, 1), 100);
+      const where =
+        status === "new" || status === "read" || status === "archived"
+          ? "WHERE status = $1"
+          : "WHERE status <> 'archived'";
+      const params = where.includes("$1") ? [status] : [];
+      const messages = await query(
+        `SELECT id, source, kind, category, name, email, subject, message, status, created_at
+         FROM inbox_messages ${where} ORDER BY created_at DESC LIMIT ${limit}`,
+        params,
+      );
+      const countRows = await query<{ status: string; n: string }>(
+        `SELECT status, COUNT(*)::text AS n FROM inbox_messages GROUP BY status`,
+      );
+      const counts = { new: 0, read: 0, archived: 0 };
+      for (const r of countRows) {
+        if (r.status in counts) counts[r.status as keyof typeof counts] = Number(r.n);
+      }
+      return JSON.stringify({ counts, messages });
     }
 
     default:

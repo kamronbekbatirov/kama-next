@@ -14,6 +14,7 @@ import { api } from "./_shared";
 import { SectionHeader, SoftCard, StatBlock, Chip, MetricRow, Pill } from "./dashboard-ui";
 import { Sparkline } from "./server-sparkline";
 import { AnalyticsTab } from "./analytics-tab";
+import { InboxTab } from "./inbox-tab";
 
 // ---------- Types ----------------------------------------------------------
 
@@ -579,7 +580,9 @@ function HistoryChart({
 export function ServerTab() {
   const { lang } = useLang();
   const t = translations[lang as Lang] ?? translations.en;
-  const [view, setView] = useState<"server" | "analytics">("server");
+  const [view, setView] = useState<"server" | "analytics" | "inbox">("server");
+  const inboxCount = usePolled<{ new: number }>("/api/dashboard/inbox/count", 30000);
+  const unread = inboxCount?.new ?? 0;
 
   return (
     <div className="space-y-4">
@@ -590,8 +593,16 @@ export function ServerTab() {
         <Pill size="sm" active={view === "analytics"} onClick={() => setView("analytics")}>
           {t.dash.tabs.analytics}
         </Pill>
+        <Pill size="sm" active={view === "inbox"} onClick={() => setView("inbox")}>
+          {t.dash.tabs.inbox}
+          {unread > 0 && (
+            <span className="ml-1 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-[var(--accent)] text-[var(--background)] text-[10px] font-bold tabular-nums">
+              {unread}
+            </span>
+          )}
+        </Pill>
       </div>
-      {view === "server" ? <ServerView /> : <AnalyticsTab />}
+      {view === "server" ? <ServerView /> : view === "analytics" ? <AnalyticsTab /> : <InboxTab />}
     </div>
   );
 }

@@ -412,6 +412,36 @@ export function renderServerContext(s: ServerStatus): string {
   return lines.join("\n");
 }
 
+interface InboxPeek {
+  new: number;
+  recent: Array<{ source: string; kind: string; name: string | null; subject: string | null }>;
+}
+
+/** Cheap inbox summary for the system prompt: unread count + a few latest. */
+async function getInboxPeek(): Promise<InboxPeek | null> {
+  try {
+    const [countRows, recent] = await Promise.all([
+      query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM inbox_messages WHERE status = 'new'`),
+      query<{ source: string; kind: string; name: string | null; subject: string | null }>(
+        `SELECT source, kind, name, subject FROM inbox_messages
+         WHERE status = 'new' ORDER BY created_at DESC LIMIT 5`,
+      ),
+    ]);
+    return { new: Number(countRows[0]?.n ?? 0), recent };
+  } catch {
+    return null;
+  }
+}
+
+/** Compact "# Inbox" section: only worth showing when something is unread. */
+export function renderInboxContext(p: InboxPeek): string {
+  if (p.new === 0) return "# Inbox\n- No new messages.";
+  const items = p.recent
+    .map(m => `${m.source} (${m.kind})${m.name ? ` from ${m.name}` : ""}${m.subject ? `: ${m.subject}` : ""}`)
+    .join("; ");
+  return `# Inbox\n- ${p.new} NEW message${p.new === 1 ? "" : "s"} from site contact/feedback forms: ${items}\n(Full text + older messages — via the get_inbox tool.)`;
+}
+
 const SYSTEM_INSTRUCTIONS = `You are Kamronbek's personal assistant living inside his private Telegram dashboard. You have full access to every part of his life via the structured snapshot below: schedule, habits, todos, job applications, budget, knowledge trees, methods (WOOP, goals, commitments), journal — and a live summary of his Hetzner server (the infra behind kama.uz and his other sites).
 
 You also have TOOLS to MODIFY anything in his dashboard. Use them whenever he asks you to add, change, complete, or delete something — don't ask for permission for routine changes. After running a tool, briefly confirm in plain language what you did. For destructive operations on substantial data (deleting whole subjects/trees, deleting many applications), confirm first if intent is ambiguous.
@@ -423,6 +453,7 @@ Tool-use principles:
 - Habits: prayers (fajr/dhuhr/asr/maghrib/isha) are always 5 fixed columns — use mark_habit. Other habits come from his habit_defs list (shown under "Tracked habits"); builtin ones (marked with *) also use mark_habit with their column id; non-builtin (custom) use mark_custom_habit with the habit_id string.
 - If the user asks for something modified across multiple items, run multiple tool calls in sequence.
 - get_server_status returns the full live infra picture (per-service, per-domain, SSL days, DB sizes, backups, security counters). The "# Server" section below is only a summary — call the tool when he asks for server/site details, and read its alerts list before declaring everything fine.
+- get_inbox returns messages people sent through the contact/feedback forms on his sites. The "# Inbox" section below shows only the unread count and a peek — call the tool to read full message text, an email address to reply to, or older/archived messages.
 - After tools succeed, summarise what you did. Don't dump tool output verbatim.
 - If a tool fails, explain why; don't silently retry the same call.
 
@@ -442,13 +473,15 @@ export interface ChatTurn {
 }
 
 export async function buildSystemPrompt(): Promise<string> {
-  const [snap, server] = await Promise.all([
+  const [snap, server, inbox] = await Promise.all([
     getDashboardSnapshot(),
-    // Server section is best-effort: a collector hiccup must not kill the chat.
+    // Server/inbox sections are best-effort: a hiccup must not kill the chat.
     getServerStatus().catch(() => null),
+    getInboxPeek().catch(() => null),
   ]);
   const serverSection = server ? `\n\n${renderServerContext(server)}` : "";
-  return `${SYSTEM_INSTRUCTIONS}\n\n${renderContext(snap)}${serverSection}`;
+  const inboxSection = inbox ? `\n\n${renderInboxContext(inbox)}` : "";
+  return `${SYSTEM_INSTRUCTIONS}\n\n${renderContext(snap)}${serverSection}${inboxSection}`;
 }
 
 export interface ChatResult {
