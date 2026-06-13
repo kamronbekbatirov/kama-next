@@ -21,6 +21,7 @@ export interface InboxMessage {
   email: string | null;
   subject: string | null;
   message: string;
+  html: string | null;
   meta: Record<string, unknown>;
   ip: string | null;
   user_agent: string | null;
@@ -37,6 +38,7 @@ export interface InboxInput {
   email?: string | null;
   subject?: string | null;
   message: string;
+  html?: string | null;
   meta?: Record<string, unknown>;
   ip?: string | null;
   user_agent?: string | null;
@@ -76,13 +78,14 @@ export async function insertInboxMessage(input: InboxInput): Promise<InsertResul
   const user_agent = clean(input.user_agent, 400);
   const meta = input.meta && typeof input.meta === "object" ? input.meta : {};
 
+  const html = typeof input.html === "string" && input.html ? input.html : null;
   const rows = await query<InboxMessage>(
     `INSERT INTO inbox_messages
-       (source, kind, category, name, email, subject, message, meta, ip, user_agent)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
-     RETURNING id, source, kind, category, name, email, subject, message, meta,
+       (source, kind, category, name, email, subject, message, html, meta, ip, user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
+     RETURNING id, source, kind, category, name, email, subject, message, html, meta,
                ip, user_agent, status, created_at, read_at`,
-    [source, kind, category, name, email, subject, message, JSON.stringify(meta), ip, user_agent],
+    [source, kind, category, name, email, subject, message, html, JSON.stringify(meta), ip, user_agent],
   );
   return { ok: true, message: rows[0] };
 }

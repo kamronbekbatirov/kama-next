@@ -21,6 +21,7 @@ interface Msg {
   email: string | null;
   subject: string | null;
   message: string;
+  html: string | null;
   meta: Record<string, unknown>;
   status: "new" | "read" | "archived";
   created_at: string;
@@ -131,6 +132,36 @@ function Composer({
   );
 }
 
+// ─── Email HTML body (rendered like a mail client) ───────────────────────────
+// Sandboxed iframe: no scripts run (no allow-scripts), links open in a new tab,
+// height auto-fits the content (capped). allow-same-origin only so we can read
+// the rendered height back.
+function EmailHtml({ html }: { html: string }) {
+  const srcDoc =
+    `<!doctype html><html><head><meta charset="utf-8"><base target="_blank">` +
+    `<meta name="color-scheme" content="light"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+    `<style>html{color-scheme:light}body{margin:0;padding:14px;background:#fff;color:#111;` +
+    `font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;word-break:break-word}` +
+    `img{max-width:100%!important;height:auto}a{color:#2563eb}table{max-width:100%!important}*{max-width:100%}</style>` +
+    `</head><body>${html}</body></html>`;
+  return (
+    <iframe
+      title="email"
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      srcDoc={srcDoc}
+      className="w-full rounded-lg border border-[var(--card-border)] bg-white"
+      style={{ height: 220 }}
+      onLoad={(e) => {
+        try {
+          const f = e.currentTarget;
+          const h = f.contentWindow?.document?.body?.scrollHeight ?? 0;
+          if (h) f.style.height = `${Math.min(Math.max(h + 16, 80), 760)}px`;
+        } catch { /* cross-origin guard */ }
+      }}
+    />
+  );
+}
+
 // ─── A received message ──────────────────────────────────────────────────────
 
 function MessageCard({
@@ -166,7 +197,8 @@ function MessageCard({
 
   return (
     <SoftCard className={`px-4 py-3 ${unread ? "border-[var(--accent)]/40" : ""}`}>
-      <button onClick={expand} className="w-full text-left cursor-pointer">
+      {/* Header — click to expand/collapse (not selectable, so toggling is clean) */}
+      <div onClick={expand} className="cursor-pointer select-none">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex items-center gap-2">
             {unread && <span className="shrink-0 w-2 h-2 rounded-full bg-[var(--accent)]" />}
@@ -189,13 +221,24 @@ function MessageCard({
           </Chip>
           {m.subject && <span className="text-[11px] text-[var(--muted)] truncate">{m.subject}</span>}
         </div>
-        <p className={`mt-2 text-sm text-[var(--foreground)]/90 whitespace-pre-wrap break-words ${open ? "" : "line-clamp-2"}`}>
-          {m.message}
-        </p>
-      </button>
+        {!open && (
+          <p className="mt-2 text-sm text-[var(--foreground)]/90 whitespace-pre-wrap break-words line-clamp-2">
+            {m.message}
+          </p>
+        )}
+      </div>
 
       {open && (
         <div className="mt-3 pt-3 border-t border-[var(--card-border)] space-y-3">
+          {/* Full body — selectable; HTML emails render like a mail client */}
+          {m.kind === "email" && m.html ? (
+            <EmailHtml html={m.html} />
+          ) : (
+            <div className="text-sm text-[var(--foreground)]/90 whitespace-pre-wrap break-words select-text">
+              {m.message}
+            </div>
+          )}
+
           {/* Prior replies */}
           {thread.map((s) => (
             <div key={s.id} className="rounded-lg bg-[var(--surface-2)]/50 px-3 py-2 text-xs">
@@ -266,7 +309,7 @@ function SentCard({ s, t, onChange }: { s: Sent; t: T; onChange: () => void }) {
   };
   return (
     <SoftCard className="px-4 py-3">
-      <button onClick={() => setOpen((v) => !v)} className="w-full text-left cursor-pointer">
+      <div onClick={() => setOpen((v) => !v)} className="cursor-pointer select-none">
         <div className="flex items-start justify-between gap-3">
           <span className="truncate text-sm font-medium">→ {s.to_name || s.to_email}</span>
           <div className="shrink-0 flex items-center gap-1.5">
@@ -278,16 +321,23 @@ function SentCard({ s, t, onChange }: { s: Sent; t: T; onChange: () => void }) {
           <Chip tone="muted">{s.from_addr}</Chip>
           {s.subject && <span className="text-[11px] text-[var(--muted)] truncate">{s.subject}</span>}
         </div>
-        <p className={`mt-2 text-sm text-[var(--foreground)]/90 whitespace-pre-wrap break-words ${open ? "" : "line-clamp-2"}`}>
-          {s.body}
-        </p>
-      </button>
+        {!open && (
+          <p className="mt-2 text-sm text-[var(--foreground)]/90 whitespace-pre-wrap break-words line-clamp-2">
+            {s.body}
+          </p>
+        )}
+      </div>
       {open && (
-        <div className="mt-3 pt-3 border-t border-[var(--card-border)] flex items-center gap-2">
-          {s.error && <p className="text-xs text-red-500 truncate">{s.error}</p>}
-          <IconButton size="sm" variant="ghost" className="ml-auto" onClick={remove} aria-label={t.dash.inbox.delete}>
-            <Trash2 size={15} className="text-red-500" />
-          </IconButton>
+        <div className="mt-3 pt-3 border-t border-[var(--card-border)] space-y-2">
+          <div className="text-sm text-[var(--foreground)]/90 whitespace-pre-wrap break-words select-text">
+            {s.body}
+          </div>
+          <div className="flex items-center gap-2">
+            {s.error && <p className="text-xs text-red-500 truncate">{s.error}</p>}
+            <IconButton size="sm" variant="ghost" className="ml-auto" onClick={remove} aria-label={t.dash.inbox.delete}>
+              <Trash2 size={15} className="text-red-500" />
+            </IconButton>
+          </div>
         </div>
       )}
     </SoftCard>

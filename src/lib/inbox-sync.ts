@@ -59,10 +59,11 @@ export async function syncReceivedEmails(limit = 40): Promise<{ synced: number; 
   const items: ReceivedMeta[] = Array.isArray(list?.data) ? list.data : [];
   if (!items.length) return { synced: 0, checked: 0 };
 
-  // Which ids are already in the inbox?
+  // Dedupe against the tombstone, not live rows — so a deleted message is NOT
+  // re-pulled on the next sync.
   const ids = items.map((i) => i.id);
   const existing = await query<{ eid: string }>(
-    `SELECT meta->>'emailId' AS eid FROM inbox_messages WHERE meta->>'emailId' = ANY($1)`,
+    `SELECT email_id AS eid FROM inbox_seen_emails WHERE email_id = ANY($1)`,
     [ids],
   );
   const have = new Set(existing.map((r) => r.eid));
@@ -87,9 +88,12 @@ export async function syncReceivedEmails(limit = 40): Promise<{ synced: number; 
       email,
       subject,
       message,
+      html: html || null,
       meta: { emailId: it.id, to: it.to ?? null, from_raw: it.from ?? null, message_id: it.message_id ?? null },
     });
     if (res.ok) synced++;
+    // Record as seen even if insert failed, so we don't retry it forever.
+    await query(`INSERT INTO inbox_seen_emails (email_id) VALUES ($1) ON CONFLICT DO NOTHING`, [it.id]);
   }
   return { synced, checked: items.length };
 }
