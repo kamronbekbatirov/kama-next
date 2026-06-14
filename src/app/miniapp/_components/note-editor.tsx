@@ -193,6 +193,26 @@ export function NoteEditor({
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
     editorProps: {
       attributes: { class: "tiptap min-h-[360px]" },
+      // Notion-style: clicking the gutter to the LEFT of a checkbox (or anywhere
+      // left of the text) drops the caret at the start of that line, instead of
+      // doing nothing. Clicking the checkbox itself still toggles it.
+      handleClick(view, _pos, event) {
+        const el = event.target as HTMLElement | null;
+        if (!el || el.closest("label")) return false;            // the checkbox → let it toggle
+        const li = el.closest('li[data-type="taskItem"]');
+        if (!li || !view.dom.contains(li)) return false;
+        const content = li.querySelector(":scope > div");
+        if (!(content instanceof HTMLElement)) return false;
+        if (event.clientX >= content.getBoundingClientRect().left) return false; // on/after the text
+        const start = view.posAtDOM(content, 0);
+        view.dispatch(
+          view.state.tr
+            .setSelection(TextSelection.near(view.state.doc.resolve(start), 1))
+            .scrollIntoView(),
+        );
+        view.focus();
+        return true;
+      },
     },
   });
 
