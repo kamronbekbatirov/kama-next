@@ -199,7 +199,8 @@ export function NoteEditor({
       handleClick(view, _pos, event) {
         const el = event.target as HTMLElement | null;
         if (!el || el.closest("label")) return false;            // the checkbox → let it toggle
-        const li = el.closest('li[data-type="taskItem"]');
+        // The live checkbox <li> has no data-type, so match it via its taskList <ul>.
+        const li = el.closest('ul[data-type="taskList"] > li');
         if (!li || !view.dom.contains(li)) return false;
         const content = li.querySelector(":scope > div");
         if (!(content instanceof HTMLElement)) return false;
