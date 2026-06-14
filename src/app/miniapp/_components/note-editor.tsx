@@ -58,7 +58,9 @@ const ContinueList = Extension.create({
 // reorder a to-do without retyping. Works by lifting the adjacent sibling over
 // the current item and keeping the cursor on the moved item.
 function moveListItem(dir: "up" | "down") {
-  return ({ state, dispatch }: { state: EditorState; dispatch?: (tr: Transaction) => void }) => {
+  // Uses the transaction provided by TipTap (props.tr) — NOT state.tr — so the
+  // edit is actually dispatched (same pattern as ContinueList above).
+  return ({ state, tr, dispatch }: { state: EditorState; tr: Transaction; dispatch?: (tr: Transaction) => void }) => {
     const itemTypes = ["listItem", "taskItem"];
     const { $from } = state.selection;
     let depth = -1;
@@ -76,23 +78,23 @@ function moveListItem(dir: "up" | "down") {
     if (dir === "up") {
       if (index === 0) return false;
       const prev = parent.child(index - 1);
-      if (!dispatch) return true;
-      const tr = state.tr;
-      tr.delete(itemPos - prev.nodeSize, itemPos);   // remove the previous sibling…
-      tr.insert(itemEnd - prev.nodeSize, prev);       // …re-insert it after this item
-      tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(state.selection.from))));
-      dispatch(tr.scrollIntoView());
+      if (dispatch) {
+        tr.delete(itemPos - prev.nodeSize, itemPos);   // remove the previous sibling…
+        tr.insert(itemEnd - prev.nodeSize, prev);       // …re-insert it after this item
+        tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(state.selection.from))));
+        dispatch(tr.scrollIntoView());
+      }
       return true;
     }
 
     if (index >= parent.childCount - 1) return false;
     const next = parent.child(index + 1);
-    if (!dispatch) return true;
-    const tr = state.tr;
-    tr.delete(itemEnd, itemEnd + next.nodeSize);      // remove the next sibling…
-    tr.insert(itemPos, next);                          // …re-insert it before this item
-    tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(state.selection.from))));
-    dispatch(tr.scrollIntoView());
+    if (dispatch) {
+      tr.delete(itemEnd, itemEnd + next.nodeSize);      // remove the next sibling…
+      tr.insert(itemPos, next);                          // …re-insert it before this item
+      tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(state.selection.from))));
+      dispatch(tr.scrollIntoView());
+    }
     return true;
   };
 }
