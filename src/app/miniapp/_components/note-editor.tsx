@@ -99,10 +99,26 @@ function moveListItem(dir: "up" | "down") {
 
 const MoveListItem = Extension.create({
   name: "moveListItem",
+  priority: 1000, // run before the list extensions' own Backspace handling
   addKeyboardShortcuts() {
+    const moveUp = () => this.editor.commands.command(moveListItem("up"));
+    const moveDown = () => this.editor.commands.command(moveListItem("down"));
     return {
-      "Alt-ArrowUp":   () => this.editor.commands.command(moveListItem("up")),
-      "Alt-ArrowDown": () => this.editor.commands.command(moveListItem("down")),
+      "Alt-ArrowUp": moveUp,
+      "Alt-ArrowDown": moveDown,
+      // Put the cursor at the start of a checkbox/list line and press Backspace
+      // ("назад") to send the whole item one line up. Empty items and the very
+      // first item fall through to the default, so you can still exit the list.
+      Backspace: () => {
+        const { editor } = this;
+        if (!editor.isActive("taskItem") && !editor.isActive("listItem")) return false;
+        const { selection } = editor.state;
+        if (!selection.empty) return false;          // a range is selected → normal delete
+        const { $from } = selection;
+        if ($from.parentOffset !== 0) return false;  // not at the start of the line
+        if ($from.parent.content.size === 0) return false; // empty item → default (exit list)
+        return moveUp();                             // moves up; false on the first item → default runs
+      },
     };
   },
 });
