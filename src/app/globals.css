@@ -142,18 +142,13 @@ body {
   align-items: flex-start;
   gap: 0.55rem;
   margin: 0.2rem 0;
-  /* Clickable gutter to the LEFT of the checkbox — shows a text caret on hover,
-     and (via handleClick) drops the cursor at the start of the line. */
-  padding-left: 1.4rem;
-  cursor: text;
 }
 .tiptap ul[data-type="taskList"] li > label {
   margin-top: 0.18rem;
   flex-shrink: 0;
   user-select: none;
-  cursor: pointer;
 }
-.tiptap ul[data-type="taskList"] li > div { flex: 1 1 auto; min-width: 0; cursor: text; }
+.tiptap ul[data-type="taskList"] li > div { flex: 1 1 auto; min-width: 0; }
 .tiptap ul[data-type="taskList"] input[type="checkbox"] {
   width: 1rem;
   height: 1rem;
