@@ -2,13 +2,14 @@
 
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import { Extension } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { StarterKit } from "@tiptap/starter-kit";
 import { TaskList } from "@tiptap/extension-task-list";
 import { TaskItem } from "@tiptap/extension-task-item";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import {
-  Bold, Italic, Strikethrough, Heading2, List, ListOrdered, ListChecks, Undo2, Redo2,
+  Bold, Italic, Strikethrough, Heading2, List, ListOrdered, ListChecks,
+  ArrowUp, ArrowDown, Undo2, Redo2,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -49,6 +50,59 @@ const ContinueList = Extension.create({
         if (editor.isActive("listItem")) return handle("listItem");
         return false;
       },
+    };
+  },
+});
+
+// Move the current list/checkbox item up or down among its siblings — so you can
+// reorder a to-do without retyping. Works by lifting the adjacent sibling over
+// the current item and keeping the cursor on the moved item.
+function moveListItem(dir: "up" | "down") {
+  return ({ state, dispatch }: { state: EditorState; dispatch?: (tr: Transaction) => void }) => {
+    const itemTypes = ["listItem", "taskItem"];
+    const { $from } = state.selection;
+    let depth = -1;
+    for (let i = $from.depth; i > 0; i--) {
+      if (itemTypes.includes($from.node(i).type.name)) { depth = i; break; }
+    }
+    if (depth < 0) return false;
+
+    const item = $from.node(depth);
+    const itemPos = $from.before(depth);
+    const itemEnd = itemPos + item.nodeSize;
+    const parent = $from.node(depth - 1);
+    const index = $from.index(depth - 1);
+
+    if (dir === "up") {
+      if (index === 0) return false;
+      const prev = parent.child(index - 1);
+      if (!dispatch) return true;
+      const tr = state.tr;
+      tr.delete(itemPos - prev.nodeSize, itemPos);   // remove the previous sibling…
+      tr.insert(itemEnd - prev.nodeSize, prev);       // …re-insert it after this item
+      tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(state.selection.from))));
+      dispatch(tr.scrollIntoView());
+      return true;
+    }
+
+    if (index >= parent.childCount - 1) return false;
+    const next = parent.child(index + 1);
+    if (!dispatch) return true;
+    const tr = state.tr;
+    tr.delete(itemEnd, itemEnd + next.nodeSize);      // remove the next sibling…
+    tr.insert(itemPos, next);                          // …re-insert it before this item
+    tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(state.selection.from))));
+    dispatch(tr.scrollIntoView());
+    return true;
+  };
+}
+
+const MoveListItem = Extension.create({
+  name: "moveListItem",
+  addKeyboardShortcuts() {
+    return {
+      "Alt-ArrowUp":   () => this.editor.commands.command(moveListItem("up")),
+      "Alt-ArrowDown": () => this.editor.commands.command(moveListItem("down")),
     };
   },
 });
@@ -115,6 +169,7 @@ export function NoteEditor({
       TaskItem.configure({ nested: true }),
       Placeholder.configure({ placeholder: placeholder ?? "" }),
       ContinueList,
+      MoveListItem,
     ],
     content: toInitialHTML(value),
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
@@ -133,6 +188,7 @@ export function NoteEditor({
 
 function Toolbar({ editor }: { editor: Editor | null }) {
   if (!editor) return null;
+  const inItem = editor.isActive("listItem") || editor.isActive("taskItem");
   return (
     <div className="flex items-center gap-0.5 flex-wrap border-b border-[var(--card-border)] pb-2 sticky top-0 bg-[var(--background)] z-10">
       <ToolbarButton label="Bold" active={editor.isActive("bold")}
@@ -165,6 +221,17 @@ function Toolbar({ editor }: { editor: Editor | null }) {
       <ToolbarButton label="To-do list" active={editor.isActive("taskList")}
         onClick={() => editor.chain().focus().toggleTaskList().run()}>
         <ListChecks className="h-4 w-4" />
+      </ToolbarButton>
+
+      <span className="w-px h-5 bg-[var(--card-border)] mx-1" />
+
+      <ToolbarButton label="Move item up (Alt+↑)" disabled={!inItem}
+        onClick={() => editor.commands.command(moveListItem("up"))}>
+        <ArrowUp className="h-4 w-4" />
+      </ToolbarButton>
+      <ToolbarButton label="Move item down (Alt+↓)" disabled={!inItem}
+        onClick={() => editor.commands.command(moveListItem("down"))}>
+        <ArrowDown className="h-4 w-4" />
       </ToolbarButton>
 
       <span className="w-px h-5 bg-[var(--card-border)] mx-1" />

@@ -302,6 +302,13 @@ function NotesContent() {
                 {d.del}
               </button>
             )}
+            <button
+              onClick={() => void flush()}
+              className="h-9 px-4 rounded-full bg-[var(--foreground)] text-[var(--background)] text-xs font-semibold hover:opacity-85 transition-opacity flex items-center gap-1.5"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {d.save}
+            </button>
           </div>
         </div>
         <Input
