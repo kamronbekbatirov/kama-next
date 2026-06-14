@@ -193,31 +193,6 @@ export function NoteEditor({
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
     editorProps: {
       attributes: { class: "tiptap min-h-[360px]" },
-      // Notion-style: clicking the gutter to the LEFT of a checkbox drops the
-      // caret at the start of that line. Uses raw mousedown because clicking the
-      // empty gutter (no text under the pointer) makes posAtCoords return null,
-      // so ProseMirror's handleClick never fires there. The checkbox itself
-      // (inside <label>) still toggles.
-      handleDOMEvents: {
-        mousedown: (view, event) => {
-          const target = event.target as HTMLElement | null;
-          if (!target || target.closest("label")) return false;       // checkbox → toggle
-          const li = target.closest('ul[data-type="taskList"] > li');
-          if (!li) return false;
-          const content = li.querySelector(":scope > div");
-          if (!(content instanceof HTMLElement)) return false;
-          if (event.clientX >= content.getBoundingClientRect().left) return false; // on/after text
-          const pos = view.posAtDOM(content, 0);
-          event.preventDefault();
-          view.dispatch(
-            view.state.tr
-              .setSelection(TextSelection.near(view.state.doc.resolve(pos), 1))
-              .scrollIntoView(),
-          );
-          view.focus();
-          return true;
-        },
-      },
     },
   });
 
