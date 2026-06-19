@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
-import { setSession, DEFAULT_PASSWORD } from "@/lib/auth";
+import { createSession, DEFAULT_PASSWORD } from "@/lib/auth";
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
@@ -47,7 +47,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (constantTimeEqual(password, DEFAULT_PASSWORD)) {
-    await setSession({ authenticated: true, method: "password" });
+    await createSession({
+      method: "password",
+      kind: "web",
+      userAgent: req.headers.get("user-agent"),
+      ip,
+    });
     return NextResponse.json({ ok: true });
   }
   return NextResponse.json({ ok: false, error: "wrong_password" }, { status: 401 });

@@ -32,12 +32,58 @@ function readTabFromHash(): TabId {
   return VALID_TABS.has(h as TabId) ? (h as TabId) : "today";
 }
 
+// Tames the on-screen keyboard lag:
+//  • mirrors the *visual* viewport height into `--app-h`, so the shell shrinks
+//    with the keyboard and the focused field is revealed by the inner scroll
+//    (fast) instead of iOS's slow whole-page scroll;
+//  • reports `kbOpen` from focus events (instant — fires the moment you tap an
+//    input, well before the keyboard finishes animating) so the bottom nav can
+//    get out of the way without the resize-driven delay.
+function useKeyboard(): boolean {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const root = document.documentElement;
+    const vv = window.visualViewport;
+    const syncHeight = () => {
+      if (vv) root.style.setProperty("--app-h", `${Math.round(vv.height)}px`);
+    };
+    const editable = (el: EventTarget | null) => {
+      const n = el as HTMLElement | null;
+      if (!n || !n.tagName) return false;
+      return n.tagName === "INPUT" || n.tagName === "TEXTAREA" || n.isContentEditable;
+    };
+    // Only treat focus as "keyboard opening" on touch devices — on desktop
+    // focusing an input shouldn't hide the nav (there's no keyboard).
+    const coarse = () => window.matchMedia("(pointer: coarse)").matches;
+    const onFocusIn = (e: FocusEvent) => { if (editable(e.target) && coarse()) setOpen(true); };
+    const onFocusOut = () => {
+      // Focus may hop straight to another field — re-check on the next tick.
+      setTimeout(() => { if (!editable(document.activeElement)) setOpen(false); }, 0);
+    };
+
+    syncHeight();
+    vv?.addEventListener("resize", syncHeight);
+    vv?.addEventListener("scroll", syncHeight);
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      vv?.removeEventListener("resize", syncHeight);
+      vv?.removeEventListener("scroll", syncHeight);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+      root.style.removeProperty("--app-h");
+    };
+  }, []);
+  return open;
+}
+
 export default function DashboardPage() {
   const { t } = useLang();
   const d = t.dash;
   const router = useRouter();
   const [tab, setTab]           = useState<TabId>("today");
   const [settings, setSettings] = useState(false);
+  const kbOpen = useKeyboard();
   const [authed, setAuthed]     = useState(false);
   const [checking, setChecking] = useState(true);
   const [inboxNew, setInboxNew] = useState(0);
@@ -49,6 +95,41 @@ export default function DashboardPage() {
       .catch(() => router.replace("/miniapp/login"))
       .finally(() => setChecking(false));
   }, [router]);
+
+  // Instant revocation via server push (SSE): if this session is revoked from
+  // another device or via Telegram, the server pushes a `revoked` event and we
+  // drop to login sub-second — no reload.
+  useEffect(() => {
+    if (!authed) return;
+    let closed = false;
+    const es = new EventSource("/api/auth/sessions/stream");
+    es.addEventListener("revoked", () => { if (!closed) router.replace("/miniapp/login"); });
+    return () => { closed = true; es.close(); };
+  }, [authed, router]);
+
+  // Fallback heartbeat: covers the case where SSE silently dies (proxy drop,
+  // legacy cookie with no session id). Checks immediately on tab focus, plus a
+  // slow interval while visible. Only an explicit 401 logs out — blips don't.
+  useEffect(() => {
+    if (!authed) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const r = await fetch("/api/auth/me", { cache: "no-store" });
+        if (!cancelled && r.status === 401) router.replace("/miniapp/login");
+      } catch { /* transient network error — ignore */ }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    const id = setInterval(() => { if (document.visibilityState === "visible") check(); }, 30000);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", check);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", check);
+    };
+  }, [authed, router]);
 
   // Unread inbox badge on the Server nav button — cheap count, polled.
   useEffect(() => {
@@ -89,7 +170,10 @@ export default function DashboardPage() {
   const tabTitle = d.tabs[tab];
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] flex flex-col">
+    <div
+      className="bg-[var(--background)] text-[var(--foreground)] flex flex-col overflow-hidden"
+      style={{ height: "var(--app-h, 100dvh)" }}
+    >
 
       {/* Header */}
       <header className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
@@ -109,7 +193,11 @@ export default function DashboardPage() {
       {/* Content */}
       <main
         className="flex-1 overflow-auto px-5"
-        style={{ paddingBottom: "calc(96px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))" }}
+        style={{
+          paddingBottom: kbOpen
+            ? "16px"
+            : "calc(96px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+        }}
       >
         {tab === "today"   && <TodayTab />}
         {tab === "tasks"   && <TasksTab />}
@@ -119,9 +207,13 @@ export default function DashboardPage() {
         {tab === "journal" && <JournalTab />}
       </main>
 
-      {/* Floating bottom nav */}
+      {/* Floating bottom nav — slides out of the way while the keyboard is open */}
       <nav
-        className="fixed bottom-0 left-0 right-0 px-4 pb-3 pointer-events-none z-30"
+        className={[
+          "fixed bottom-0 left-0 right-0 px-4 pb-3 z-30 transition-[transform,opacity] duration-200 ease-out",
+          kbOpen ? "translate-y-full opacity-0 pointer-events-none" : "pointer-events-none",
+        ].join(" ")}
+        aria-hidden={kbOpen}
         style={{ paddingBottom: "calc(12px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))" }}
       >
         <div className="pointer-events-auto mx-auto max-w-md grid grid-cols-6 rounded-2xl border border-[var(--card-border)] bg-[var(--background)]/85 backdrop-blur-xl shadow-pop overflow-hidden">

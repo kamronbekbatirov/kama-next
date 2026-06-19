@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, FileText, Plus, Trash2, Save, Check, Loader2, Calendar, ChevronRight, Moon } from "lucide-react";
+import { ArrowLeft, FileText, Plus, Trash2, Save, Check, Loader2, Calendar, ChevronRight, Moon, Lock, LockOpen, ShieldCheck } from "lucide-react";
 import { NoteEditor } from "./note-editor";
+import { PinModal } from "./pin-modal";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -173,6 +174,12 @@ function NotesContent() {
   // its id mid-typing doesn't remount the editor and drop the cursor.
   const [editorKey, setEditorKey] = useState("new");
 
+  // Note locking: a 4-digit PIN gates locked notes' content (server-side).
+  const [lock, setLock] = useState({ pinSet: false, unlocked: false });
+  const [pinModal, setPinModal] = useState<
+    { mode: "set" | "enter"; submit: (pin: string) => Promise<{ ok: boolean; error?: string }> } | null
+  >(null);
+
   // Autosave plumbing — refs avoid stale closures and create/update races.
   const idRef      = useRef<number|null>(null);          // current note id (null = unsaved new)
   const stateRef   = useRef({ title: "", content: "" }); // latest editor content
@@ -185,7 +192,13 @@ function NotesContent() {
     const data = await api("/api/dashboard/notes");
     if (Array.isArray(data)) setNotes(data);
   }, []);
-  useEffect(() => { load(); }, [load]);
+  const loadLock = useCallback(async () => {
+    const data = await api("/api/dashboard/notes/lock");
+    if (data && typeof data.pinSet === "boolean") {
+      setLock({ pinSet: data.pinSet, unlocked: !!data.unlocked });
+    }
+  }, []);
+  useEffect(() => { load(); loadLock(); }, [load, loadLock]);
   useEffect(() => { stateRef.current = { title, content }; }, [title, content]);
 
   const flush = useCallback(async () => {
@@ -261,6 +274,68 @@ function NotesContent() {
     setSelected(null); setIsNew(false); setStatus("idle");
   };
 
+  // Open a note from the list. Locked + still gated → ask for the PIN first,
+  // then re-fetch (now with content) and open it.
+  const tapNote = (n: Note) => {
+    if (n.locked && !lock.unlocked) {
+      setPinModal({
+        mode: "enter",
+        submit: async (pin) => {
+          const res = await jPost("/api/dashboard/notes/lock", { action: "unlock", pin });
+          if (!res?.ok) return { ok: false, error: res?.error };
+          setLock(l => ({ ...l, unlocked: true }));
+          const fresh = await api("/api/dashboard/notes");
+          if (Array.isArray(fresh)) {
+            setNotes(fresh);
+            openNote(fresh.find((x: Note) => x.id === n.id) ?? n);
+          } else {
+            openNote(n);
+          }
+          return { ok: true };
+        },
+      });
+    } else {
+      openNote(n);
+    }
+  };
+
+  // Lock / unlock the note currently open in the editor.
+  const setNoteLocked = async (locked: boolean) => {
+    await flush();                              // make sure it exists (has an id)
+    const id = idRef.current ?? selected?.id;
+    if (!id) return;
+    await jPatch("/api/dashboard/notes", { id, locked });
+    setSelected(s => (s ? { ...s, locked } : s));
+    load();
+  };
+
+  const onLockClick = () => {
+    const locked = selected?.locked ?? false;
+    if (locked) { void setNoteLocked(false); return; }   // already unlocked here → just remove the lock
+    if (lock.pinSet) { void setNoteLocked(true); return; } // PIN exists → lock straight away
+    // No PIN yet → set one, then lock this note.
+    setPinModal({
+      mode: "set",
+      submit: async (pin) => {
+        const res = await jPost("/api/dashboard/notes/lock", { action: "set", pin });
+        if (!res?.ok) return { ok: false, error: res?.error };
+        setLock({ pinSet: true, unlocked: true });
+        await setNoteLocked(true);
+        return { ok: true };
+      },
+    });
+  };
+
+  const lockNow = async () => {
+    await jPost("/api/dashboard/notes/lock", { action: "lock" });
+    setLock(l => ({ ...l, unlocked: false }));
+    load();
+  };
+
+  const pinModalEl = pinModal && (
+    <PinModal mode={pinModal.mode} onClose={() => setPinModal(null)} onSubmit={pinModal.submit} />
+  );
+
   if (isNew || selected) {
     return (
       <div className="flex flex-col gap-3">
@@ -289,6 +364,20 @@ function NotesContent() {
           )}
 
           <div className="flex gap-2 ml-auto">
+            <button
+              onClick={onLockClick}
+              title={selected?.locked ? d.unlockNote : d.lockNote}
+              aria-label={selected?.locked ? d.unlockNote : d.lockNote}
+              className={[
+                "h-9 px-4 rounded-full border text-xs font-semibold transition-all flex items-center gap-1.5",
+                selected?.locked
+                  ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)] hover:opacity-85"
+                  : "border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)] hover:border-[var(--foreground)]/40",
+              ].join(" ")}
+            >
+              {selected?.locked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+              {selected?.locked ? d.locked : d.lockNote}
+            </button>
             {selected && (
               <button
                 onClick={async () => {
@@ -323,9 +412,12 @@ function NotesContent() {
           onChange={setContent}
           placeholder={d.contentPh}
         />
+        {pinModalEl}
       </div>
     );
   }
+
+  const hasLocked = notes.some(n => n.locked);
 
   return (
     <div className="flex flex-col gap-3">
@@ -337,34 +429,56 @@ function NotesContent() {
         {d.newNote}
       </button>
 
+      {hasLocked && lock.unlocked && (
+        <button
+          onClick={() => void lockNow()}
+          className="self-start inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+        >
+          <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+          {d.unlockedNotice} · <span className="underline underline-offset-2">{d.lockNow}</span>
+        </button>
+      )}
+
       {notes.length === 0 ? (
         <SoftCard>
           <EmptyState icon={<FileText className="h-8 w-8" />} title={d.noNotes} />
         </SoftCard>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {notes.map(n => (
-            <button
-              key={n.id}
-              onClick={() => openNote(n)}
-              className="text-left rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-4 shadow-soft hover:shadow-pop hover:border-[var(--foreground)]/30 transition-all cursor-pointer group"
-            >
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="text-sm font-semibold truncate flex-1">
-                  {n.title || d.untitled}
+          {notes.map(n => {
+            const gated = n.locked && !lock.unlocked;
+            return (
+              <button
+                key={n.id}
+                onClick={() => tapNote(n)}
+                className="text-left rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-4 shadow-soft hover:shadow-pop hover:border-[var(--foreground)]/30 transition-all cursor-pointer group"
+              >
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <div className="text-sm font-semibold truncate flex-1 flex items-center gap-1.5 min-w-0">
+                    {n.locked && <Lock className="h-3.5 w-3.5 text-[var(--muted)] shrink-0" />}
+                    <span className="truncate">{n.title || d.untitled}</span>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-[var(--muted)] shrink-0 group-hover:text-[var(--foreground)] transition-colors" />
                 </div>
-                <ChevronRight className="h-4 w-4 text-[var(--muted)] shrink-0 group-hover:text-[var(--foreground)] transition-colors" />
-              </div>
-              <div className="text-xs text-[var(--muted)] line-clamp-3 mb-2 leading-relaxed">
-                {plainText(n.content) || "—"}
-              </div>
-              <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
-                {new Date(n.updated_at).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
-              </div>
-            </button>
-          ))}
+                {gated ? (
+                  <div className="text-xs text-[var(--muted)] italic mb-2 flex items-center gap-1.5">
+                    <Lock className="h-3 w-3" />
+                    {d.lockedNote}
+                  </div>
+                ) : (
+                  <div className="text-xs text-[var(--muted)] line-clamp-3 mb-2 leading-relaxed">
+                    {plainText(n.content) || "—"}
+                  </div>
+                )}
+                <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+                  {new Date(n.updated_at).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
+      {pinModalEl}
     </div>
   );
 }

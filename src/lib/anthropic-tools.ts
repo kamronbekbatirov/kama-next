@@ -4,6 +4,7 @@ import { getServerStatus } from "@/lib/server-status";
 import { computeNextReview, masteryFromState, statusFromHistory, type RecallScore } from "@/lib/learn/spaced-repetition";
 import { SCHEDULE_ICON_KEYS, resolveIconKey } from "@/lib/schedule-icons";
 import { markdownToHtml } from "@/lib/notes-format";
+import { listSessions, revokeSession, revokeAllSessions } from "@/lib/auth";
 
 type Tool = Anthropic.Tool;
 
@@ -373,6 +374,26 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       required: ["id"],
     },
+  },
+  // ─── SESSIONS ──────────────────────────────────────────────────────────────
+  {
+    name: "list_sessions",
+    description: "List the active login sessions for Kamronbek's dashboard (web browsers + Telegram). Returns each session's id, device, IP, and last-seen time. Use the id with revoke_session.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "revoke_session",
+    description: "Sign out / revoke a single login session by its id (taken from list_sessions).",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Session id from list_sessions" } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "end_all_sessions",
+    description: "Revoke ALL active login sessions — sign out everywhere (every web browser and Telegram). Kamronbek will have to log in again. Only use when he asks to end all/every session or log out everywhere.",
+    input_schema: { type: "object", properties: {} },
   },
   {
     name: "delete_note",
@@ -959,6 +980,35 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       if (!id) return "Error: id required";
       await query("DELETE FROM notes WHERE id = $1", [id]);
       return `Deleted note #${id}`;
+    }
+
+    // ─── SESSIONS ──────────
+    case "list_sessions": {
+      const list = await listSessions();
+      if (list.length === 0) return "No active sessions.";
+      const relAgo = (iso: string) => {
+        const t = new Date(iso).getTime();
+        if (isNaN(t)) return iso;
+        const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+        if (s < 60) return "just now";
+        if (s < 3600) return `${Math.round(s / 60)}m ago`;
+        if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+        return `${Math.round(s / 86400)}d ago`;
+      };
+      return `${list.length} active session(s):\n` + list.map(s => {
+        const dev = s.kind === "telegram" ? "Telegram" : (s.user_agent ? s.user_agent.slice(0, 70) : "Web");
+        return `- [${s.id}] ${dev}${s.ip ? ` · ${s.ip}` : ""} · last seen ${relAgo(s.last_seen_at)}`;
+      }).join("\n");
+    }
+    case "revoke_session": {
+      const id = asStr(input.id);
+      if (!id) return "Error: id required";
+      await revokeSession(id);
+      return `Revoked session ${id}.`;
+    }
+    case "end_all_sessions": {
+      await revokeAllSessions();
+      return "Revoked all active sessions — signed out everywhere (web + Telegram). You'll need to log in again.";
     }
 
     // ─── LEARN ─────────────

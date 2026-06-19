@@ -21,7 +21,7 @@ export interface Application { id: number; company: string; role: string; status
 export interface BudgetEntry { id: number; type: "income" | "expense"; amount: number; category: string | null; description: string | null; date: string; }
 export interface DailyLog { date: string; visa_progress: string|null; what_worked: string|null; tomorrow_task: string|null; workout_pushups: number; workout_plank: number; workout_walk: number; notes: string|null; }
 export interface HabitsRow { date: string; fajr: boolean; dhuhr: boolean; asr: boolean; maghrib: boolean; isha: boolean; water: boolean; walk: boolean; workout: boolean; breakfast: boolean; quran: boolean; }
-export interface Note { id: number; title: string; content: string; updated_at: string; }
+export interface Note { id: number; title: string; content: string; updated_at: string; locked: boolean; }
 export interface ScheduleBlock { id: string; start: number; end: number; label: string; icon: string; }
 export interface HabitDef { id: string; label: string; builtin: boolean; }
 export interface Subscription { id: string; name: string; amount: number; currency: string; day: number; active: boolean; }
