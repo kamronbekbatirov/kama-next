@@ -192,7 +192,7 @@ export default function DashboardPage() {
 
       {/* Content */}
       <main
-        className="flex-1 overflow-auto px-5"
+        className="flex-1 overflow-y-auto overflow-x-hidden px-5"
         style={{
           paddingBottom: kbOpen
             ? "16px"

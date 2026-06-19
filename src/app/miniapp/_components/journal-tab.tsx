@@ -338,8 +338,8 @@ function NotesContent() {
 
   if (isNew || selected) {
     return (
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <IconButton size="md" variant="ghost" onClick={() => { void closeEditor(); }} aria-label="back">
             <ArrowLeft className="h-4 w-4" />
           </IconButton>
@@ -363,20 +363,20 @@ function NotesContent() {
             </button>
           )}
 
-          <div className="flex gap-2 ml-auto">
+          {/* Compact icon actions so the header never overflows / scrolls sideways */}
+          <div className="flex items-center gap-1.5 ml-auto shrink-0">
             <button
               onClick={onLockClick}
               title={selected?.locked ? d.unlockNote : d.lockNote}
               aria-label={selected?.locked ? d.unlockNote : d.lockNote}
               className={[
-                "h-9 px-4 rounded-full border text-xs font-semibold transition-all flex items-center gap-1.5",
+                "h-9 w-9 inline-flex items-center justify-center rounded-full border transition-all shrink-0",
                 selected?.locked
                   ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)] hover:opacity-85"
                   : "border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)] hover:border-[var(--foreground)]/40",
               ].join(" ")}
             >
-              {selected?.locked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
-              {selected?.locked ? d.locked : d.lockNote}
+              {selected?.locked ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
             </button>
             {selected && (
               <button
@@ -385,18 +385,20 @@ function NotesContent() {
                   editingRef.current = false;
                   setSelected(null); setIsNew(false); setStatus("idle"); load();
                 }}
-                className="h-9 px-4 rounded-full border border-red-500/40 text-red-500 text-xs font-semibold hover:bg-red-500 hover:text-white transition-all flex items-center gap-1.5"
+                title={d.del}
+                aria-label={d.del}
+                className="h-9 w-9 inline-flex items-center justify-center rounded-full border border-red-500/40 text-red-500 hover:bg-red-500 hover:text-white transition-all shrink-0"
               >
-                <Trash2 className="h-3.5 w-3.5" />
-                {d.del}
+                <Trash2 className="h-4 w-4" />
               </button>
             )}
             <button
               onClick={() => void flush()}
-              className="h-9 px-4 rounded-full bg-[var(--foreground)] text-[var(--background)] text-xs font-semibold hover:opacity-85 transition-opacity flex items-center gap-1.5"
+              title={d.save}
+              aria-label={d.save}
+              className="h-9 w-9 inline-flex items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--background)] hover:opacity-85 transition-opacity shrink-0"
             >
-              <Save className="h-3.5 w-3.5" />
-              {d.save}
+              <Save className="h-4 w-4" />
             </button>
           </div>
         </div>
