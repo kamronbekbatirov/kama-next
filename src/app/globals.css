@@ -71,9 +71,17 @@ body {
   50% { opacity: 0.3; }
 }
 
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
+}
+
 .animate-fade-in { animation: fadeIn 0.3s ease both; }
 .animate-slide-up { animation: slideUp 0.5s ease both; }
 .animate-pulse-dot { animation: pulse-dot 2s infinite; }
+.animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
 
 .shadow-soft { box-shadow: var(--shadow-soft); }
 .shadow-pop { box-shadow: var(--shadow-pop); }

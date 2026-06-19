@@ -6,6 +6,10 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  // When the on-screen keyboard opens, shrink the layout viewport so fixed
+  // elements and 100dvh track it (instant on Chromium; iOS uses the
+  // visual-viewport sync in the dashboard shell instead).
+  interactiveWidget: "resizes-content",
 };
 
 // Hide /miniapp/** from search engines entirely.

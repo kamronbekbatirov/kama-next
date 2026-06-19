@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { setSession, TELEGRAM_ID } from "@/lib/auth";
+import { createSession, TELEGRAM_ID } from "@/lib/auth";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 
@@ -48,7 +48,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 403 });
     }
 
-    await setSession({ authenticated: true, method: "telegram", telegramId: user.id });
+    const ip =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip") ||
+      null;
+    await createSession({
+      method: "telegram",
+      telegramId: user.id,
+      kind: "telegram",
+      userAgent: req.headers.get("user-agent"),
+      ip,
+    });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 403 });

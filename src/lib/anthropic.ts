@@ -68,7 +68,7 @@ interface DashboardSnapshot {
   learnMethods: { id: number; method: string; title: string | null; data: unknown; created_at: string }[];
   recentRecallSessions: { id: number; node_id: number; node_title: string; subject_title: string; recall_score: number; created_at: string }[];
   recentLogs: { date: string; what_worked: string | null; tomorrow_task: string | null; visa_progress: string | null; workout_pushups: number | null; workout_plank: number | null; workout_walk: number | null; notes: string | null }[];
-  recentNotes: { id: number; title: string; content: string; updated_at: string }[];
+  recentNotes: { id: number; title: string; content: string; updated_at: string; locked: boolean }[];
   reviewQueue: { id: number; title: string; subject_title: string; next_review: string }[];
 }
 
@@ -139,8 +139,9 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     query<{ date: string; what_worked: string | null; tomorrow_task: string | null; visa_progress: string | null; workout_pushups: number | null; workout_plank: number | null; workout_walk: number | null; notes: string | null }>(
       "SELECT date::text, what_worked, tomorrow_task, visa_progress, workout_pushups, workout_plank, workout_walk, notes FROM daily_log ORDER BY date DESC LIMIT 7"
     ),
-    query<{ id: number; title: string; content: string; updated_at: string }>(
-      "SELECT id, title, content, updated_at FROM notes ORDER BY updated_at DESC LIMIT 10"
+    query<{ id: number; title: string; content: string; updated_at: string; locked: boolean }>(
+      // Locked notes never expose their body to the assistant.
+      "SELECT id, title, CASE WHEN locked THEN '' ELSE content END AS content, locked, updated_at FROM notes ORDER BY updated_at DESC LIMIT 10"
     ),
     query<{ id: number; title: string; subject_title: string; next_review: string }>(
       `SELECT n.id, n.title, s.title AS subject_title, n.next_review::text
@@ -341,6 +342,7 @@ ${snap.recentLogs.map(l => {
   if (snap.recentNotes.length > 0) {
     sections.push(`# Recent notes
 ${snap.recentNotes.slice(0, 5).map(n => {
+      if (n.locked) return `## #${n.id} ${n.title || "(untitled)"}\n🔒 [locked — content hidden]`;
       const text = htmlToText(n.content);
       const snippet = text.length > 200 ? text.slice(0, 200) + "…" : text;
       return `## #${n.id} ${n.title || "(untitled)"}\n${snippet}`;

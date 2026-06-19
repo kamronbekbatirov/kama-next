@@ -5,7 +5,7 @@ import { useLang } from "@/components/providers";
 import { LangToggle } from "@/components/lang-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
-import { ArrowDownRight, Github, Linkedin, Mail, ExternalLink } from "lucide-react";
+import { ArrowDownRight, Github, Linkedin, Mail, ExternalLink, ChevronDown } from "lucide-react";
 
 // ─── CONTACT FORM ──────────────────────────────────────────
 function ContactForm() {
@@ -93,11 +93,26 @@ const STATUS_DOT: Record<string, string> = {
   research: "bg-[var(--foreground)]",
 };
 
+// True when the primary input is touch (no hover). On those devices the project
+// rows become tap-to-expand instead of relying on hover.
+function useCoarsePointer() {
+  const [coarse, setCoarse] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setCoarse(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return coarse;
+}
+
 // ─── PAGE ──────────────────────────────────────────────────
 export default function PortfolioPage() {
   const { t } = useLang();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [hoveredProject, setHoveredProject] = useState<number | null>(null);
+  const [openProject, setOpenProject] = useState<number | null>(null);
+  const coarse = useCoarsePointer();
   const marqueeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -275,41 +290,77 @@ export default function PortfolioPage() {
           <h2 className="text-4xl font-black uppercase tracking-tight mb-0">{t.projects.title}</h2>
 
           <div className="mt-8 border-t border-[var(--card-border)]">
-            {projects.map((p, i) => (
+            {projects.map((p, i) => {
+              // Desktop reveals on hover (CSS). Touch devices tap to toggle.
+              const open = coarse && openProject === i;
+              const toggle = () => setOpenProject(prev => (prev === i ? null : i));
+              return (
               <div
                 key={p.name}
-                className="group relative border-b border-[var(--card-border)] overflow-hidden cursor-default"
-                onMouseEnter={() => setHoveredProject(i)}
-                onMouseLeave={() => setHoveredProject(null)}
+                className={cn(
+                  "group relative border-b border-[var(--card-border)] overflow-hidden",
+                  coarse ? "cursor-pointer" : "cursor-default"
+                )}
+                onClick={coarse ? toggle : undefined}
+                onKeyDown={coarse ? (e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+                } : undefined}
+                role={coarse ? "button" : undefined}
+                tabIndex={coarse ? 0 : undefined}
+                aria-expanded={coarse ? open : undefined}
               >
-                {/* Slide-in fill */}
-                <div className="absolute inset-0 bg-[var(--foreground)] -translate-x-full group-hover:translate-x-0 transition-transform duration-300 ease-out pointer-events-none" />
+                {/* Slide-in fill — on hover (desktop) or when tapped open (touch) */}
+                <div className={cn(
+                  "absolute inset-0 bg-[var(--foreground)] -translate-x-full transition-transform duration-300 ease-out pointer-events-none",
+                  "group-hover:translate-x-0",
+                  open && "translate-x-0"
+                )} />
 
                 <div className="relative z-10 flex items-start gap-6 py-6 px-4 sm:py-5 sm:px-6 sm:items-center">
                   {/* Number */}
-                  <span className="text-[10px] font-black text-[var(--muted)] group-hover:text-[var(--background)]/50 transition-colors pt-0.5 sm:pt-0 w-5 shrink-0">
+                  <span className={cn(
+                    "text-[10px] font-black text-[var(--muted)] transition-colors pt-0.5 sm:pt-0 w-5 shrink-0",
+                    "group-hover:text-[var(--background)]/50",
+                    open && "text-[var(--background)]/50"
+                  )}>
                     {p.num}
                   </span>
 
                   {/* Name + desc */}
                   <div className="flex-1 min-w-0">
-                    <div className="font-black text-xl sm:text-2xl leading-tight group-hover:text-[var(--background)] transition-colors">
+                    <div className={cn(
+                      "font-black text-xl sm:text-2xl leading-tight transition-colors",
+                      "group-hover:text-[var(--background)]",
+                      open && "text-[var(--background)]"
+                    )}>
                       {p.name}
                     </div>
-                    {/* Description: expands to its full height on hover (desktop),
-                        and is always shown on touch devices that can't hover.
-                        grid-rows 0fr→1fr animates to the real content height, so
-                        long descriptions are never clipped. */}
+
+                    {/* Touch-only affordance: makes it obvious each project has a
+                        description you can tap to open. Hidden on hover-capable
+                        devices, where hovering reveals it. */}
+                    {coarse && (
+                      <div className={cn(
+                        "flex items-center gap-1 mt-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--muted)] transition-colors",
+                        open && "text-[var(--background)]/70"
+                      )}>
+                        <span>{t.projects.details}</span>
+                        <ChevronDown size={12} className={cn("transition-transform duration-300", open && "rotate-180")} />
+                      </div>
+                    )}
+
+                    {/* Description: grid 0fr→1fr animates to the real content
+                        height, so long descriptions are never clipped. */}
                     <div className={cn(
                       "grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out",
-                      "group-hover:grid-rows-[1fr] [@media(hover:none)]:grid-rows-[1fr]"
+                      "group-hover:grid-rows-[1fr]",
+                      open && "grid-rows-[1fr]"
                     )}>
                       <div className="overflow-hidden">
                         <p className={cn(
-                          "text-sm text-[var(--muted)] leading-relaxed mt-1.5",
-                          "opacity-0 transition-opacity duration-300",
+                          "text-sm text-[var(--muted)] leading-relaxed mt-1.5 opacity-0 transition-opacity duration-300",
                           "group-hover:text-[var(--background)]/60 group-hover:opacity-100",
-                          "[@media(hover:none)]:opacity-100"
+                          open && "opacity-100 text-[var(--background)]/60"
                         )}>
                           {p.desc}
                         </p>
@@ -327,7 +378,12 @@ export default function PortfolioPage() {
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
                           aria-label={`${p.name} — live site`}
-                          className="h-8 w-8 inline-flex items-center justify-center border border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--background)] hover:text-[var(--background)] group-hover:border-[var(--background)]/40 group-hover:text-[var(--background)] transition-colors"
+                          className={cn(
+                            "h-8 w-8 inline-flex items-center justify-center border border-[var(--card-border)] text-[var(--muted)] transition-colors",
+                            "hover:border-[var(--background)] hover:text-[var(--background)]",
+                            "group-hover:border-[var(--background)]/40 group-hover:text-[var(--background)]",
+                            open && "border-[var(--background)]/40 text-[var(--background)]"
+                          )}
                         >
                           <ExternalLink size={12} />
                         </a>
@@ -339,7 +395,12 @@ export default function PortfolioPage() {
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
                           aria-label={`${p.name} — GitHub`}
-                          className="h-8 w-8 inline-flex items-center justify-center border border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--background)] hover:text-[var(--background)] group-hover:border-[var(--background)]/40 group-hover:text-[var(--background)] transition-colors"
+                          className={cn(
+                            "h-8 w-8 inline-flex items-center justify-center border border-[var(--card-border)] text-[var(--muted)] transition-colors",
+                            "hover:border-[var(--background)] hover:text-[var(--background)]",
+                            "group-hover:border-[var(--background)]/40 group-hover:text-[var(--background)]",
+                            open && "border-[var(--background)]/40 text-[var(--background)]"
+                          )}
                         >
                           <Github size={12} />
                         </a>
@@ -349,14 +410,23 @@ export default function PortfolioPage() {
 
                   {/* Status */}
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={cn("h-1.5 w-1.5 rounded-full group-hover:bg-[var(--background)] transition-colors", p.dot)} />
-                    <span className="text-[10px] font-black uppercase tracking-[0.15em] text-[var(--muted)] group-hover:text-[var(--background)] transition-colors hidden sm:inline">
+                    <span className={cn(
+                      "h-1.5 w-1.5 rounded-full transition-colors",
+                      "group-hover:bg-[var(--background)]",
+                      open && "bg-[var(--background)]",
+                      p.dot
+                    )} />
+                    <span className={cn(
+                      "text-[10px] font-black uppercase tracking-[0.15em] text-[var(--muted)] transition-colors hidden sm:inline",
+                      "group-hover:text-[var(--background)]"
+                    )}>
                       {p.statusLabel}
                     </span>
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
