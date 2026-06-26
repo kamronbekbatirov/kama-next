@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { LogOut, Palette, Languages, User, Monitor, Smartphone, X, ShieldCheck, Lock, KeyRound, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { LogOut, Palette, Languages, User, Monitor, Smartphone, X, ShieldCheck, Lock, KeyRound, Trash2, Globe, Clock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LangToggle } from "@/components/lang-toggle";
@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { useLang } from "@/components/providers";
 import { SectionHeader } from "./dashboard-ui";
 import { PinModal } from "./pin-modal";
+import { useTimezone, allTimeZones } from "./timezone";
 
 interface SessionInfo {
   id: string;
@@ -267,6 +268,54 @@ function NoteLockSection({ open }: { open: boolean }) {
   );
 }
 
+function TimezoneSection() {
+  const { t } = useLang();
+  const d = t.dash.settingsModal;
+  const { tz, auto, device, setTimezone } = useTimezone();
+  const zones = useMemo(() => allTimeZones(), []);
+
+  return (
+    <section>
+      <SectionHeader eyebrow={d.timezone} trailing={<Globe className="h-3.5 w-3.5 text-[var(--muted)]" />} />
+      <Card className="p-2">
+        <div className="flex items-center justify-between gap-3 py-2 px-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Clock className="h-4 w-4 text-[var(--muted)] shrink-0" />
+            <span className="text-sm font-medium truncate">{tz}</span>
+          </div>
+          <span className="text-[11px] text-[var(--muted)] tabular-nums shrink-0">
+            {new Intl.DateTimeFormat(undefined, { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(new Date())}
+          </span>
+        </div>
+
+        <div className="border-t border-[var(--card-border)] my-1" />
+
+        <button
+          onClick={() => (auto ? setTimezone(tz, false) : setTimezone(device, true))}
+          className="w-full flex items-center justify-between gap-3 py-2.5 px-3 hover:bg-[var(--surface-2)] transition-colors cursor-pointer rounded-lg"
+        >
+          <span className="text-sm font-medium">{d.tzAuto}</span>
+          <span className={["relative inline-flex h-5 w-9 rounded-full transition-colors shrink-0", auto ? "bg-emerald-500" : "bg-[var(--card-border)]"].join(" ")}>
+            <span className={["absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform", auto ? "translate-x-[18px]" : "translate-x-0.5"].join(" ")} />
+          </span>
+        </button>
+
+        {!auto && (
+          <div className="px-3 pb-2 pt-1">
+            <select
+              value={tz}
+              onChange={e => setTimezone(e.target.value, false)}
+              className="w-full h-9 rounded-xl border border-[var(--input-border)] bg-[var(--muted-bg)] px-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--foreground)]"
+            >
+              {zones.map(z => <option key={z} value={z}>{z}</option>)}
+            </select>
+          </div>
+        )}
+      </Card>
+    </section>
+  );
+}
+
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useLang();
   const d = t.dash.settingsModal;
@@ -303,6 +352,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
               </div>
             </Card>
           </section>
+
+          <TimezoneSection />
 
           <NoteLockSection open={open} />
 

@@ -12,6 +12,7 @@ import { JournalTab } from "./_components/journal-tab";
 import { LearnTab } from "./_components/learn";
 import { SettingsModal } from "./_components/settings-modal";
 import { IconButton } from "./_components/dashboard-ui";
+import { TimezoneProvider } from "./_components/timezone";
 
 type TabId = "today" | "tasks" | "learn" | "server" | "budget" | "journal";
 const TABS: { id: TabId; icon: LucideIcon; key: keyof typeof import("@/lib/i18n").translations.en.dash.tabs }[] = [
@@ -170,6 +171,7 @@ export default function DashboardPage() {
   const tabTitle = d.tabs[tab];
 
   return (
+    <TimezoneProvider>
     <div
       className="bg-[var(--background)] text-[var(--foreground)] flex flex-col overflow-hidden"
       style={{ height: "var(--app-h, 100dvh)" }}
@@ -249,5 +251,6 @@ export default function DashboardPage() {
 
       <SettingsModal open={settings} onClose={() => setSettings(false)} />
     </div>
+    </TimezoneProvider>
   );
 }

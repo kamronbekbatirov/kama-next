@@ -5,6 +5,7 @@ import { computeNextReview, masteryFromState, statusFromHistory, type RecallScor
 import { SCHEDULE_ICON_KEYS, resolveIconKey } from "@/lib/schedule-icons";
 import { markdownToHtml } from "@/lib/notes-format";
 import { listSessions, revokeSession, revokeAllSessions } from "@/lib/auth";
+import { getTimezone } from "@/lib/timezone";
 
 type Tool = Anthropic.Tool;
 
@@ -34,7 +35,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
         },
         due_at: {
           type: "string",
-          description: "Optional deadline as an ISO 8601 datetime WITH a timezone offset. Kamronbek is in Europe/London (BST = +01:00 in summer, GMT = +00:00 in winter). Use the current London date/time from the snapshot to resolve relative dates. Example: '2026-06-10T15:30:00+01:00'. Omit if there is no deadline.",
+          description: "Optional deadline as an ISO 8601 datetime WITH a timezone offset that matches Kamronbek's current timezone (shown on the snapshot's '# Now' line). Use the current local date/time from the snapshot to resolve relative dates like 'tomorrow 3pm'. Example: '2026-06-10T15:30:00+01:00'. Omit if there is no deadline.",
         },
       },
       required: ["text"],
@@ -77,7 +78,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
         },
         due_at: {
           type: "string",
-          description: "Set or replace the deadline: ISO 8601 datetime WITH a timezone offset (Europe/London — +01:00 summer, +00:00 winter), e.g. '2026-06-10T15:30:00+01:00'. Pass an empty string \"\" to remove the deadline. Omit to leave it unchanged.",
+          description: "Set or replace the deadline: ISO 8601 datetime WITH a timezone offset matching Kamronbek's current timezone (see the snapshot's '# Now' line), e.g. '2026-06-10T15:30:00+01:00'. Pass an empty string \"\" to remove the deadline. Omit to leave it unchanged.",
         },
       },
       required: ["id"],
@@ -588,9 +589,9 @@ function parseDue(v: unknown): Date | null {
   const d = new Date(String(v));
   return isNaN(d.getTime()) ? null : d;
 }
-function fmtDueLondon(d: Date): string {
+function fmtDueTz(d: Date, tz: string): string {
   return d.toLocaleString("en-GB", {
-    timeZone: "Europe/London", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    timeZone: tz, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
   });
 }
 
@@ -612,7 +613,7 @@ export async function executeTool(name: string, input: Input): Promise<string> {
         [text, asStr(input.category) ?? "general", asStr(input.priority) ?? "medium", validStatus, due]
       );
       const t = rows[0];
-      const dueNote = t.due_at ? `, due ${fmtDueLondon(new Date(t.due_at))}` : "";
+      const dueNote = t.due_at ? `, due ${fmtDueTz(new Date(t.due_at), await getTimezone())}` : "";
       return `Added todo #${t.id}: "${t.text}" [${t.priority.toUpperCase()}, ${t.category}, ${t.status}${dueNote}]`;
     }
     case "complete_todo": {
