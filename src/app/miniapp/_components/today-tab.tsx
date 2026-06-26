@@ -14,6 +14,7 @@ import {
 } from "./_shared";
 import { SectionHeader, Pill, IconButton } from "./dashboard-ui";
 import { ScheduleIcon } from "./schedule-icon";
+import { useTimezone, clockParts, dateLabel } from "./timezone";
 import { SCHEDULE_ICON_KEYS, DEFAULT_ICON_KEY } from "@/lib/schedule-icons";
 
 interface ScheduleRow { id: string; start_min: number; end_min: number; label: string; icon: string; position: number; }
@@ -21,6 +22,7 @@ interface ScheduleRow { id: string; start_min: number; end_min: number; label: s
 export function TodayTab() {
   const { t } = useLang();
   const d = t.dash.today;
+  const { tz } = useTimezone();
 
   const [time, setTime]           = useState(new Date());
   const [habits, setHabits]       = useState<Partial<HabitsRow>>({});
@@ -68,14 +70,16 @@ export function TodayTab() {
     await jPost("/api/dashboard/habit-custom", { date: today(), habit_id: id, done: newVal });
   };
 
-  const nowMin = time.getHours() * 60 + time.getMinutes();
+  // Clock + "what's now" are computed in the configured timezone.
+  const { h: nowH, m: nowMinute, s: nowSec } = clockParts(time, tz);
+  const nowMin = nowH * 60 + nowMinute;
   const sorted = [...schedule].sort((a, b) => a.start - b.start);
   const current = sorted.find(b => nowMin >= b.start && nowMin < b.end);
   const nextBlock = current ? sorted[sorted.indexOf(current) + 1] : sorted.find(b => nowMin < b.start);
 
-  const hh = String(time.getHours()).padStart(2,"0");
-  const mm = String(time.getMinutes()).padStart(2,"0");
-  const ss = String(time.getSeconds()).padStart(2,"0");
+  const hh = String(nowH).padStart(2,"0");
+  const mm = String(nowMinute).padStart(2,"0");
+  const ss = String(nowSec).padStart(2,"0");
 
   const prayers = PRAYER_IDS.map(k => ({ key: k, label: d.prayerNames[k] }));
   const prayersDone = prayers.filter(p => habits[p.key as keyof HabitsRow]).length;
@@ -155,7 +159,7 @@ export function TodayTab() {
           </span>
         </div>
         <div className="text-xs text-[var(--muted)] mt-2 capitalize">
-          {time.toLocaleDateString("ru-RU", { weekday: "long", month: "long", day: "numeric" })}
+          {dateLabel(time, tz, "ru-RU", { weekday: "long", month: "long", day: "numeric" })}
         </div>
 
         {current ? (

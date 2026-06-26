@@ -31,6 +31,7 @@ import {
   TODO_STATUSES, type Todo, type TodoStatus,
 } from "./_shared";
 import { Pill, Chip, IconButton, CopyButton } from "./dashboard-ui";
+import { useTimezone } from "./timezone";
 
 const PRIORITY_DOT: Record<string, string> = {
   high: "bg-red-500",
@@ -440,6 +441,8 @@ function TodoCard({
 }) {
   const isDone = todo.status === "done";
   const overdue = !isDone && isOverdue(todo.due_at);
+  const { tz } = useTimezone();
+  const due = fmtDue(todo.due_at, tz);
   return (
     <div
       className={[
@@ -477,10 +480,10 @@ function TodoCard({
                 "inline-flex items-center gap-0.5 text-[9px] tabular-nums whitespace-nowrap",
                 overdue ? "text-red-500 font-semibold" : "text-[var(--muted)]",
               ].join(" ")}
-              title={fmtDue(todo.due_at)}
+              title={due}
             >
               <Clock className="h-2.5 w-2.5" />
-              {fmtDue(todo.due_at)}
+              {due}
             </span>
           )}
           {todo.description && (

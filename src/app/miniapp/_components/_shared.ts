@@ -86,13 +86,15 @@ export function localInputToIso(local: string): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-/** Short, locale-aware label for a due date, in the viewer's tz. */
-export function fmtDue(iso: string | null | undefined): string {
+/** Short, locale-aware label for a due date. Pass a tz to render in it
+ *  (defaults to the viewer's device timezone). */
+export function fmtDue(iso: string | null | undefined, tz?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
   const sameYear = d.getFullYear() === new Date().getFullYear();
   return d.toLocaleString(undefined, {
+    ...(tz ? { timeZone: tz } : {}),
     day: "numeric",
     month: "short",
     ...(sameYear ? {} : { year: "numeric" }),

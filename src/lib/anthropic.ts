@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { query } from "@/lib/db";
 import { TOOL_DEFINITIONS, executeTool } from "@/lib/anthropic-tools";
 import { getServerStatus, type ServerStatus } from "@/lib/server-status";
+import { getTimezone } from "@/lib/timezone";
 
 export const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -37,18 +38,20 @@ function htmlToText(content: string): string {
     .trim();
 }
 
-// `due_at::text` comes back like "2026-06-10 15:30:00+00"; render it in London time.
-function fmtDueLondon(iso: string): string {
+// `due_at::text` comes back like "2026-06-10 15:30:00+00"; render it in the
+// configured timezone.
+function fmtDueTz(iso: string, tz: string): string {
   const d = new Date(iso.replace(" ", "T"));
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleString("en-GB", {
-    timeZone: "Europe/London", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    timeZone: tz, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
   });
 }
 
 interface DashboardSnapshot {
   date: string;
   time: string;
+  tz: string;
   schedule: { id: string; start_min: number; end_min: number; label: string; icon: string }[];
   prayersToday: Record<string, boolean>;
   habitsList: { id: string; label: string; builtin: boolean; done: boolean }[];
@@ -75,6 +78,7 @@ interface DashboardSnapshot {
 export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
   const dt = isoToday();
   const now = new Date();
+  const tz = await getTimezone();
 
   const [
     schedule, habitsToday, habitDefs, customDoneRows,
@@ -179,7 +183,8 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
 
   return {
     date: dt,
-    time: now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }),
+    time: now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: tz }),
+    tz,
     schedule,
     prayersToday,
     habitsList,
@@ -213,7 +218,7 @@ export function renderContext(snap: DashboardSnapshot): string {
   const sections: string[] = [];
 
   sections.push(`# Now
-- Date: ${snap.date} (London time ${snap.time})`);
+- Date: ${snap.date} · local time ${snap.time} (${snap.tz})`);
 
   sections.push(`# Today's schedule (id → block)
 ${snap.schedule.length === 0 ? "(empty)" : snap.schedule.map(b =>
@@ -236,7 +241,7 @@ ${snap.schedule.length === 0 ? "(empty)" : snap.schedule.map(b =>
       if (t.due_at) {
         const d = new Date(t.due_at.replace(" ", "T"));
         const overdue = !isNaN(d.getTime()) && d.getTime() < Date.now();
-        due = ` (due ${fmtDueLondon(t.due_at)}${overdue ? " — OVERDUE" : ""})`;
+        due = ` (due ${fmtDueTz(t.due_at, snap.tz)}${overdue ? " — OVERDUE" : ""})`;
       }
       return `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}${due}`;
     };
