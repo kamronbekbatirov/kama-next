@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 function deviceTz(): string {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; }
@@ -18,42 +18,72 @@ const TzContext = createContext<TzValue>({ tz: "UTC", auto: true, device: "UTC",
 export const useTimezone = () => useContext(TzContext);
 
 export function TimezoneProvider({ children }: { children: ReactNode }) {
-  const [device] = useState(deviceTz);
+  const [device, setDevice] = useState(deviceTz);
   const [auto, setAuto] = useState(true);
   const [stored, setStored] = useState<string | null>(null);
+  const autoRef = useRef(true);                  // latest auto flag (for event handlers)
+  const syncedRef = useRef<string | null>(null); // last tz pushed to the server in auto mode
 
   const save = useCallback((tz: string, autoFlag: boolean) => {
+    syncedRef.current = autoFlag ? tz : null;
     fetch("/api/dashboard/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: "timezone", value: { tz, auto: autoFlag } }),
-    }).catch(() => {});
+    }).catch(() => { syncedRef.current = null; });
   }, []);
 
-  // Load the saved setting; in auto mode keep the server synced to the device so
-  // the bot/Claude always know the right zone.
+  // Load the saved setting; in auto mode push the device zone so the bot/Claude
+  // get it automatically — no manual step.
   useEffect(() => {
     let cancelled = false;
     fetch("/api/dashboard/settings?key=timezone")
       .then(r => r.json())
       .then(({ value }) => {
         if (cancelled) return;
+        const dev = deviceTz();
+        setDevice(dev);
         const v = value && typeof value === "object" ? (value as { tz?: unknown; auto?: unknown }) : null;
         if (!v || typeof v.tz !== "string") {
-          setAuto(true); setStored(device); save(device, true);
+          setAuto(true); autoRef.current = true; setStored(dev); save(dev, true);
           return;
         }
         const a = v.auto !== false;
-        setAuto(a);
-        if (a && v.tz !== device) { setStored(device); save(device, true); }
-        else setStored(v.tz);
+        setAuto(a); autoRef.current = a;
+        if (a) {
+          setStored(dev);
+          if (v.tz !== dev) save(dev, true);   // device moved → sync the bot
+          else syncedRef.current = dev;
+        } else {
+          setStored(v.tz);
+        }
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [device, save]);
+  }, [save]);
+
+  // While on auto, keep the server (and therefore the bot) in sync with the
+  // device whenever the tab regains focus — catches a timezone change that
+  // happened after the dashboard was first loaded.
+  useEffect(() => {
+    const resync = () => {
+      if (!autoRef.current) return;
+      const dev = deviceTz();
+      setDevice(dev);
+      if (dev !== syncedRef.current) save(dev, true);
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") resync(); };
+    window.addEventListener("focus", resync);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", resync);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [save]);
 
   const setTimezone = useCallback((tz: string, autoFlag: boolean) => {
     const effective = autoFlag ? device : tz;
+    autoRef.current = autoFlag;
     setAuto(autoFlag);
     setStored(effective);
     save(effective, autoFlag);
