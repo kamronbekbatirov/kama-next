@@ -501,7 +501,7 @@ export default function PortfolioPage() {
               <div className="space-y-4 border-t border-[var(--card-border)] pt-8">
                 {[
                   { href: "https://github.com/kamronbekbatirov", icon: Github, label: "github.com/kamronbekbatirov" },
-                  { href: "https://linkedin.com/in/kamronbek-batirov", icon: Linkedin, label: "linkedin.com/in/kamronbek-batirov" },
+                  { href: "https://linkedin.com/in/kamronbekbatirov", icon: Linkedin, label: "linkedin.com/in/kamronbekbatirov" },
                   { href: "mailto:hi@kama.uz", icon: Mail, label: "hi@kama.uz" },
                 ].map(({ href, icon: Icon, label }) => (
                   <a key={href} href={href} target={href.startsWith("http") ? "_blank" : undefined}
