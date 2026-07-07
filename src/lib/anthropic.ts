@@ -6,7 +6,7 @@ import { getTimezone } from "@/lib/timezone";
 
 export const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 const MAX_TOOL_ITERATIONS = 10;
 // Was 2048 — too small for batch-style asks ("add these 19 applications"),
 // since each tool_use block costs a few dozen tokens of JSON input and the
