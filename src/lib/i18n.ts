@@ -14,7 +14,7 @@ export const translations = {
       available: "Available for work · London, UK",
       title1: "Full-Stack",
       title2: "Developer",
-      sub: "I'm Kamronbek Batirov — BSc CS from Brunel University London. I ship end-to-end products — multi-tenant SaaS with RAG, AI-driven mini apps, a UK charity marketplace with Stripe, embedded firmware with hand-rolled crypto, VR pipelines. 13 built, 7 live in production.",
+      sub: "I'm Kamronbek Batirov — BSc CS from Brunel University London. I ship end-to-end products — multi-tenant SaaS with RAG, AI-driven mini apps, a UK charity marketplace with Stripe, embedded firmware with hand-rolled crypto, VR pipelines. 13 built, 8 live in production.",
       viewProjects: "View Projects",
       getInTouch: "Get in touch",
       stats: {
@@ -25,7 +25,7 @@ export const translations = {
       },
       statVals: {
         projects: "13",
-        languages: "7",
+        languages: "8",
         degree: "2:1",
         dissertation: "A+",
       },
@@ -38,7 +38,7 @@ export const translations = {
         { name: "TypeScript · Next.js", desc: "Next.js 15 & 16 (App Router, standalone, Edge runtime), React 19, Tailwind, raw SQL." },
         { name: "Python · FastAPI · Flask", desc: "Async SQLAlchemy, aiogram, RAG pipelines, multi-process backends behind Caddy." },
         { name: "PostgreSQL · pgvector", desc: "Raw SQL across most projects, forward-only migrations, vector search with sentence-transformers." },
-        { name: "LLM integration", desc: "Claude tool-use agents (39 tools in production), OpenAI Responses API with persistent threads, retrieval-grounded Q&A." },
+        { name: "LLM integration", desc: "Claude tool-use agents (44 tools in production), OpenAI Responses API with persistent threads, retrieval-grounded Q&A." },
         { name: "Embedded C · Cryptography", desc: "ESP32-S3 + ESP-IDF firmware with mbedTLS — X25519, ChaCha20-Poly1305 AEAD, HKDF chain ratchet, SAS-verified handshake." },
         { name: "VR · 3D · WebGL", desc: "Three.js + react-three-fiber room editor, Meta Quest 3 + Unity 6 capture, COLMAP + Gaussian-Splat training, in-browser splat viewer." },
       ],
@@ -56,7 +56,7 @@ export const translations = {
       items: [
         {
           name: "Assista — No-code AI-assistant SaaS for SMBs",
-          desc: "Live production B2B SaaS at assista.uz. 48 niche templates × a core-vs-business-tools capability engine (Q&A · CRM · catalogue · orders · stock · booking · reminders · broadcast · analytics · loyalty · forms · class groups · tickets · reviews). Three channels — website widget, Telegram bot, Telegram Business chat automation. Two Claude agents: chat agent on a marker-grammar action path + 24-tool owner-assistant on Anthropic tool-use. Full KB served in the cached system prompt (the older pgvector RAG was retired). Four converging auth sources on one JWT session: email/password + Firebase email verification + Google + Telegram OIDC (JWKS-verified). Paid plans with monthly quotas + per-tier model routing; organisations + memberships for team access. OpenAI Whisper voice in.",
+          desc: "Live production B2B SaaS at assista.uz. 67 niche templates across 13 groups (with a food-first beachhead in onboarding) × a core-vs-business-tools capability engine (Q&A · CRM · catalogue · orders · stock · booking · groups · forms · loyalty · reminders · broadcast · analytics · notifications · tickets · reviews). Three channels — website widget, Telegram bot, Telegram Business chat automation. Two Claude agents: chat agent on a marker-grammar action path + 39-tool owner-assistant on Anthropic tool-use. Full KB served in the cached system prompt (the older pgvector RAG was retired). Four converging auth sources on one JWT session: email/password + Firebase email verification + Google + Telegram OIDC (JWKS-verified). Paid plans ($0–$29/mo) with monthly quotas + Haiku-first model routing (OpenAI fallback); organisations + memberships for team access; date-based orders with deposits. OpenAI Whisper voice in.",
           status: "live",
           liveUrl: "https://assista.uz",
         },
@@ -81,7 +81,7 @@ export const translations = {
         },
         {
           name: "kama.uz Dashboard — Claude as a first-class operator",
-          desc: "This site. Personal life dashboard with 39 Claude tools wired into a Telegram webhook — message the bot, it adds a todo, marks a habit, logs a recall session, updates the budget. Edge-runtime auth, raw SQL, SM-2 spaced repetition.",
+          desc: "This site. Personal life dashboard with 44 Claude tools wired into a Telegram webhook — message the bot, it adds a todo, marks a habit, logs a recall session, updates the budget. 11 modules including live server monitoring, self-hosted Umami traffic, and a unified inbox. Edge-runtime auth, raw SQL, SM-2 spaced repetition.",
           status: "live",
           liveUrl: "https://kama.uz",
           repoUrl: "https://github.com/kamronbekbatirov/kama-next",
@@ -147,7 +147,7 @@ export const translations = {
           title: "Freelance & Personal Projects",
           company: "Assista · Trek · NotHard · Maverick · TaxCo · NoiseBox · XPGame · others",
           date: "2023 – Present",
-          desc: "Sole engineer end-to-end on 13 shipped products, 7 live in production. Architecture, code, DB schema, systemd + Caddy deploys, ongoing operation. Two production LLM stacks (Claude with tool-use, OpenAI Responses API), a multi-tenant SaaS with 48 templates and 11 capability modules at assista.uz, full Payme.uz merchant integration shipped twice, Stripe Checkout with webhook idempotency on a UK charity marketplace, an open-source embedded-C messenger with a written threat model + a Web Serial flasher + a hosted demo relay, a VR / Gaussian-Splat capture pipeline.",
+          desc: "Sole engineer end-to-end on 13 shipped products, 8 live in production. Architecture, code, DB schema, systemd + Caddy deploys, ongoing operation. Two production LLM stacks (Claude with tool-use, OpenAI Responses API), a multi-tenant SaaS with 67 templates and 16 capability modules at assista.uz, full Payme.uz merchant integration shipped twice, Stripe Checkout with webhook idempotency on a UK charity marketplace, an open-source embedded-C messenger with a written threat model + a Web Serial flasher + a hosted demo relay, a VR / Gaussian-Splat capture pipeline.",
         },
         {
           title: "Project Technical Assistant (Industrial Placement)",
@@ -650,7 +650,7 @@ export const translations = {
       available: "Готов к работе · Лондон, UK",
       title1: "Full-Stack",
       title2: "Разработчик",
-      sub: "Я Камронбек Батиров — выпускник CS, Brunel University London. Делаю продукты от идеи до live-домена: мульти-тенант SaaS с RAG, AI-driven мини-аппы, UK-маркетплейс с Stripe, embedded-прошивки со своей криптографией, VR-пайплайны. 13 проектов сделано, 7 в production.",
+      sub: "Я Камронбек Батиров — выпускник CS, Brunel University London. Делаю продукты от идеи до live-домена: мульти-тенант SaaS с RAG, AI-driven мини-аппы, UK-маркетплейс с Stripe, embedded-прошивки со своей криптографией, VR-пайплайны. 13 проектов сделано, 8 в production.",
       viewProjects: "Проекты",
       getInTouch: "Написать",
       stats: {
@@ -661,7 +661,7 @@ export const translations = {
       },
       statVals: {
         projects: "13",
-        languages: "7",
+        languages: "8",
         degree: "2:1",
         dissertation: "A+",
       },
@@ -674,7 +674,7 @@ export const translations = {
         { name: "TypeScript · Next.js", desc: "Next 15/16 (App Router, standalone, Edge runtime), React 19, Tailwind, сырой SQL." },
         { name: "Python · FastAPI · Flask", desc: "Async SQLAlchemy, aiogram, RAG-пайплайны, multi-process бэкенды за Caddy." },
         { name: "PostgreSQL · pgvector", desc: "Сырой SQL в большинстве проектов, forward-only миграции, векторный поиск через sentence-transformers." },
-        { name: "LLM-интеграции", desc: "Claude tool-use агенты (39 инструментов в проде), OpenAI Responses API с persistent threads, retrieval-grounded Q&A." },
+        { name: "LLM-интеграции", desc: "Claude tool-use агенты (44 инструмента в проде), OpenAI Responses API с persistent threads, retrieval-grounded Q&A." },
         { name: "Embedded C · Криптография", desc: "ESP32-S3 + ESP-IDF, mbedTLS — X25519, ChaCha20-Poly1305 AEAD, HKDF chain ratchet, SAS-верификация." },
         { name: "VR · 3D · WebGL", desc: "Three.js + react-three-fiber, Meta Quest 3 + Unity 6, COLMAP + Gaussian Splatting (Brush), просмотр сплатов в браузере." },
       ],
@@ -692,7 +692,7 @@ export const translations = {
       items: [
         {
           name: "Assista — No-code AI-ассистент SaaS для малого бизнеса",
-          desc: "Production B2B SaaS на assista.uz. 48 шаблонов под ниши × движок возможностей core vs business-tools (Q&A · клиенты · каталог · заказы · сток · запись · напоминания · рассылка · аналитика · лояльность · формы · группы занятий · тикеты · отзывы). Три канала: виджет на сайт, Telegram-бот, Telegram Business chat automation. Два Claude-агента: чат-агент на маркер-грамматике + ассистент владельца с 24 инструментами Anthropic tool-use. Вся KB подаётся в кэшированном системном промпте (старый pgvector RAG выпилен). Четыре источника auth на одну JWT-сессию: email/пароль + Firebase email verification + Google + Telegram OIDC (с JWKS). Платные тарифы с месячной квотой + роутинг моделей по плану; organisations + memberships для команд. Голос — через OpenAI Whisper.",
+          desc: "Production B2B SaaS на assista.uz. 67 шаблонов под ниши в 13 группах (в онбординге — food-first beachhead) × движок возможностей core vs business-tools (Q&A · клиенты · каталог · заказы · сток · запись · группы · формы · лояльность · напоминания · рассылка · аналитика · уведомления · тикеты · отзывы). Три канала: виджет на сайт, Telegram-бот, Telegram Business chat automation. Два Claude-агента: чат-агент на маркер-грамматике + ассистент владельца с 39 инструментами Anthropic tool-use. Вся KB подаётся в кэшированном системном промпте (старый pgvector RAG выпилен). Четыре источника auth на одну JWT-сессию: email/пароль + Firebase email verification + Google + Telegram OIDC (с JWKS). Платные тарифы ($0–$29/мес) с месячной квотой + Haiku-first роутинг моделей (фолбэк на OpenAI); organisations + memberships для команд; заказы с датой готовности и депозитом. Голос — через OpenAI Whisper.",
           status: "live",
           liveUrl: "https://assista.uz",
         },
@@ -717,7 +717,7 @@ export const translations = {
         },
         {
           name: "kama.uz Dashboard — Claude как оператор",
-          desc: "Этот сайт. Личный дашборд с 39 Claude-инструментами, подключёнными через Telegram-webhook — пишешь боту, он добавляет todo, отмечает привычку, логирует recall-сессию, апдейтит бюджет. Edge-runtime auth, сырой SQL, SM-2 spaced repetition.",
+          desc: "Этот сайт. Личный дашборд с 44 Claude-инструментами, подключёнными через Telegram-webhook — пишешь боту, он добавляет todo, отмечает привычку, логирует recall-сессию, апдейтит бюджет. 11 модулей, включая живой мониторинг сервера, self-hosted Umami-аналитику и единый инбокс. Edge-runtime auth, сырой SQL, SM-2 spaced repetition.",
           status: "live",
           liveUrl: "https://kama.uz",
           repoUrl: "https://github.com/kamronbekbatirov/kama-next",
@@ -783,7 +783,7 @@ export const translations = {
           title: "Фриланс и личные проекты",
           company: "Assista · Trek · NotHard · Maverick · TaxCo · NoiseBox · XPGame · др.",
           date: "2023 — настоящее",
-          desc: "Единственный инженер на 13 продуктах, 7 в production. Архитектура, код, схема БД, деплой systemd + Caddy, поддержка. Два production-LLM-стека (Claude с tool-use, OpenAI Responses API), multi-tenant SaaS на assista.uz с 48 шаблонами и 11 модулями возможностей, полная интеграция Payme.uz дважды, Stripe Checkout с идемпотентностью webhook'а на UK-благотворительном маркетплейсе, open-source embedded-C мессенджер с моделью угроз + Web Serial flasher + hosted demo relay, VR / Gaussian-Splat пайплайн.",
+          desc: "Единственный инженер на 13 продуктах, 8 в production. Архитектура, код, схема БД, деплой systemd + Caddy, поддержка. Два production-LLM-стека (Claude с tool-use, OpenAI Responses API), multi-tenant SaaS на assista.uz с 67 шаблонами и 16 модулями возможностей, полная интеграция Payme.uz дважды, Stripe Checkout с идемпотентностью webhook'а на UK-благотворительном маркетплейсе, open-source embedded-C мессенджер с моделью угроз + Web Serial flasher + hosted demo relay, VR / Gaussian-Splat пайплайн.",
         },
         {
           title: "Project Technical Assistant (placement)",
@@ -1285,7 +1285,7 @@ export const translations = {
       available: "Ишга тайёр · Лондон, UK",
       title1: "Full-Stack",
       title2: "Дастурчи",
-      sub: "Мен Камронбек Батиров — Brunel University London'да BSc CS. Маҳсулотларни ғоядан live-доменгача ишлаб чиқараман: multi-tenant SaaS RAG билан, AI-driven mini app'лар, Stripe билан UK маркетплейс, ўзим ёзган криптография билан embedded прошивкалар, VR пайплайнлар. 13 та маҳсулот, 7 таси production'да.",
+      sub: "Мен Камронбек Батиров — Brunel University London'да BSc CS. Маҳсулотларни ғоядан live-доменгача ишлаб чиқараман: multi-tenant SaaS RAG билан, AI-driven mini app'лар, Stripe билан UK маркетплейс, ўзим ёзган криптография билан embedded прошивкалар, VR пайплайнлар. 13 та маҳсулот, 8 таси production'да.",
       viewProjects: "Лойиҳалар",
       getInTouch: "Боғланиш",
       stats: {
@@ -1296,7 +1296,7 @@ export const translations = {
       },
       statVals: {
         projects: "13",
-        languages: "7",
+        languages: "8",
         degree: "2:1",
         dissertation: "A+",
       },
@@ -1309,7 +1309,7 @@ export const translations = {
         { name: "TypeScript · Next.js", desc: "Next 15/16 (App Router, standalone, Edge runtime), React 19, Tailwind, тоза SQL." },
         { name: "Python · FastAPI · Flask", desc: "Async SQLAlchemy, aiogram, RAG-пайплайнлар, multi-process backend'лар Caddy ортида." },
         { name: "PostgreSQL · pgvector", desc: "Аксарият лойиҳаларда тоза SQL, forward-only миграциялар, sentence-transformers билан векторли қидирув." },
-        { name: "LLM интеграциялари", desc: "Claude tool-use агентлари (39 та инструмент production'да), OpenAI Responses API persistent thread'лар билан, retrieval-grounded Q&A." },
+        { name: "LLM интеграциялари", desc: "Claude tool-use агентлари (44 та инструмент production'да), OpenAI Responses API persistent thread'лар билан, retrieval-grounded Q&A." },
         { name: "Embedded C · Криптография", desc: "ESP32-S3 + ESP-IDF, mbedTLS — X25519, ChaCha20-Poly1305 AEAD, HKDF chain ratchet, SAS-верификация." },
         { name: "VR · 3D · WebGL", desc: "Three.js + react-three-fiber, Meta Quest 3 + Unity 6, COLMAP + Gaussian Splatting (Brush), браузерда сплат кўриш." },
       ],
@@ -1327,7 +1327,7 @@ export const translations = {
       items: [
         {
           name: "Assista — Кичик бизнес учун No-code AI ассистент SaaS",
-          desc: "assista.uz'да production B2B SaaS. Соҳалар бўйича 48 та шаблон × core vs business-tools модул двигатели (Q&A · клиентлар · каталог · буюртмалар · сток · ёзилиш · эслатмалар · рассылка · аналитика · лоялликлик · формалар · машғулот гуруҳлари · тикетлар · баҳолар). Уч канал: вебсайт виджети, Telegram-бот, Telegram Business chat automation. Икки Claude-агент: маркер-грамматикали чат-агент + 24 та Anthropic tool-use инструменти билан эга ассистенти. Бутун KB кэшланган system prompt'да берилади (эски pgvector RAG олиб ташланди). Битта JWT сессияга бирлашган тўрт auth манбаси: email/парол + Firebase email verification + Google + Telegram OIDC (JWKS билан). Ойлик квотали платный тарифлар + план бўйича модель роутинги; команда учун organisations + memberships. Овоз — OpenAI Whisper орқали.",
+          desc: "assista.uz'да production B2B SaaS. 13 гуруҳда 67 та шаблон (онбордингда — food-first beachhead) × core vs business-tools модул двигатели (Q&A · клиентлар · каталог · буюртмалар · сток · ёзилиш · гуруҳлар · формалар · лоялликлик · эслатмалар · рассылка · аналитика · билдиришномалар · тикетлар · баҳолар). Уч канал: вебсайт виджети, Telegram-бот, Telegram Business chat automation. Икки Claude-агент: маркер-грамматикали чат-агент + 39 та Anthropic tool-use инструменти билан эга ассистенти. Бутун KB кэшланган system prompt'да берилади (эски pgvector RAG олиб ташланди). Битта JWT сессияга бирлашган тўрт auth манбаси: email/парол + Firebase email verification + Google + Telegram OIDC (JWKS билан). Ойлик квотали платный тарифлар ($0–$29/ой) + Haiku-first модель роутинги (OpenAI fallback); команда учун organisations + memberships; тайёрлик санаси ва депозитли буюртмалар. Овоз — OpenAI Whisper орқали.",
           status: "live",
           liveUrl: "https://assista.uz",
         },
@@ -1352,7 +1352,7 @@ export const translations = {
         },
         {
           name: "kama.uz Dashboard — Claude оператор сифатида",
-          desc: "Шу сайт. Шахсий dashboard, 39 та Claude-инструмент Telegram-webhook орқали — ботга ёзасан, у todo қўшади, одатни белгилайди, recall сессия логлайди, бюджетни янгилайди. Edge-runtime auth, тоза SQL, SM-2 spaced repetition.",
+          desc: "Шу сайт. Шахсий dashboard, 44 та Claude-инструмент Telegram-webhook орқали — ботга ёзасан, у todo қўшади, одатни белгилайди, recall сессия логлайди, бюджетни янгилайди. 11 модул: жонли сервер мониторинги, self-hosted Umami-аналитика ва ягона inbox. Edge-runtime auth, тоза SQL, SM-2 spaced repetition.",
           status: "live",
           liveUrl: "https://kama.uz",
           repoUrl: "https://github.com/kamronbekbatirov/kama-next",
@@ -1418,7 +1418,7 @@ export const translations = {
           title: "Фриланс ва шахсий лойиҳалар",
           company: "Assista · Trek · NotHard · Maverick · TaxCo · NoiseBox · XPGame · б.қ.",
           date: "2023 — ҳозирча",
-          desc: "13 та маҳсулот устида ягона дастурчи, 7 таси production'да. Архитектура, код, БД, systemd + Caddy деплой, қўллаб-қувватлаш. Икки production LLM-стек (Claude tool-use, OpenAI Responses API), assista.uz'да 48 шаблон ва 11 модулли multi-tenant SaaS, иккита маҳсулотда тўлиқ Payme.uz интеграцияси, UK благотворительный маркетплейс'да webhook'нинг идемпотентлиги билан Stripe Checkout, тарелиди модели + Web Serial flasher + hosted demo relay билан open-source embedded-C мессенжер, VR / Gaussian-Splat пайплайн.",
+          desc: "13 та маҳсулот устида ягона дастурчи, 8 таси production'да. Архитектура, код, БД, systemd + Caddy деплой, қўллаб-қувватлаш. Икки production LLM-стек (Claude tool-use, OpenAI Responses API), assista.uz'да 67 шаблон ва 16 модулли multi-tenant SaaS, иккита маҳсулотда тўлиқ Payme.uz интеграцияси, UK благотворительный маркетплейс'да webhook'нинг идемпотентлиги билан Stripe Checkout, тарелиди модели + Web Serial flasher + hosted demo relay билан open-source embedded-C мессенжер, VR / Gaussian-Splat пайплайн.",
         },
         {
           title: "Project Technical Assistant (placement)",

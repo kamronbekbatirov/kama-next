@@ -219,8 +219,8 @@ export default function PortfolioPage() {
 
           {/* Giant name */}
           <h1
-            className="font-black uppercase leading-[0.85] tracking-tighter mt-6"
-            style={{ fontSize: "clamp(2.6rem, 13vw, 11rem)" }}
+            className="font-black uppercase leading-[0.85] tracking-tighter mt-6 break-words"
+            style={{ fontSize: "clamp(2.4rem, 11vw, 9rem)" }}
           >
             {t.hero.title1}
             <br />
@@ -458,10 +458,10 @@ export default function PortfolioPage() {
       <section className="py-24 px-6 border-t border-[var(--card-border)]">
         <div className="max-w-6xl mx-auto">
           <div className="grid md:grid-cols-2 gap-16 items-start">
-            <div>
+            <div className="min-w-0">
               <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--muted)]">{t.about.tag}</span>
               <h2 className="text-4xl font-black uppercase tracking-tight mt-1 mb-8">{t.about.title}</h2>
-              <div className="space-y-4 text-sm text-[var(--muted)] leading-relaxed">
+              <div className="space-y-4 text-sm text-[var(--muted)] leading-relaxed break-words hyphens-auto">
                 <p>{t.about.p1}</p>
                 <p>{t.about.p2}</p>
                 <p>{t.about.p3}</p>
