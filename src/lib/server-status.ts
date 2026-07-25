@@ -60,6 +60,7 @@ export type ServiceEntry = {
   main_pid?: number;
   rss_kb?: number;
   uptime_s?: number;
+  restarts?: number;
 };
 
 export type DomainEntry = {
@@ -130,8 +131,11 @@ export async function getServerStatus(): Promise<ServerStatus> {
   }
 
   for (const s of grouped.service) {
-    const d = s.data as { active: boolean; state: string };
+    const d = s.data as { active: boolean; state: string; restarts?: number };
     if (!d.active) alerts.push({ severity: "crit", message: `${s.key} is ${d.state}` });
+    const restarts = d.restarts ?? 0;
+    if (restarts >= 25) alerts.push({ severity: "crit", message: `${s.key} crash-looping (${restarts} auto-restarts)` });
+    else if (restarts >= 5) alerts.push({ severity: "warn", message: `${s.key} unstable — ${restarts} auto-restarts` });
   }
 
   for (const d of grouped.domain) {

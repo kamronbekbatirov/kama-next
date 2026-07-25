@@ -38,6 +38,7 @@ interface ServiceState {
   rss_kb: number;
   uptime_s: number;
   uptime_24h_pct?: number | null;
+  restarts?: number;
 }
 
 interface DomainState {
@@ -273,6 +274,7 @@ function ServiceCard({ s, t }: { s: ServiceState; t: typeof translations.en }) {
           <div className="text-sm font-semibold truncate" title={s.unit}>{tag}</div>
           <div className="text-[10px] text-[var(--muted)] mt-0.5">
             PID {s.main_pid || "—"} · {fmtDuration(s.uptime_s)}
+            {s.restarts ? <span className="text-yellow-500"> · ⟳ {s.restarts}</span> : null}
           </div>
         </div>
         <span
