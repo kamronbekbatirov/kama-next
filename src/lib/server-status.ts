@@ -42,7 +42,6 @@ export type OpsData = {
     oom_kills_24h?: number;
   };
   fail2ban?: { banned_now?: number | null; banned_total?: number | null };
-  pg15?: { connections?: number | null; databases?: Array<{ name: string; size_b: number }> };
   vuln_audit?: {
     ran_at?: number | null;
     critical?: number | null;

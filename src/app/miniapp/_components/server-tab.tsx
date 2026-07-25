@@ -74,7 +74,6 @@ interface OpsData {
     oom_kills_24h?: number;
   };
   fail2ban?: { banned_now?: number | null; banned_total?: number | null };
-  pg15?: { connections?: number | null; databases?: Array<{ name: string; size_b: number }> };
   vuln_audit?: {
     ran_at?: number | null;
     critical?: number | null;
@@ -465,16 +464,15 @@ function OpsCard({ ops, t }: { ops: OpsData; t: typeof translations.en }) {
   );
 }
 
-function DatabaseCard({ db, pg15, t }: {
+function DatabaseCard({ db, t }: {
   db: DatabaseState;
-  pg15?: OpsData["pg15"] | null;
   t: typeof translations.en;
 }) {
   return (
     <SoftCard>
       <SectionHeader
         eyebrow={t.dash.server.postgres}
-        title={`${db.connections + (pg15?.connections ?? 0)} ${t.dash.server.connections}`}
+        title={`${db.connections} ${t.dash.server.connections}`}
         trailing={
           db.longest_lock_s > 1 ? (
             <Chip>
@@ -494,21 +492,6 @@ function DatabaseCard({ db, pg15, t }: {
           </div>
         ))}
       </div>
-      {pg15 && (
-        <>
-          <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] mt-4 mb-1.5">
-            PG 15 · {pg15.connections ?? "—"} {t.dash.server.connections}
-          </div>
-          <div className="space-y-1.5">
-            {(pg15.databases ?? []).map((d) => (
-              <div key={d.name} className="flex items-center justify-between text-xs">
-                <span className="font-medium">{d.name}</span>
-                <span className="text-[var(--muted)] tabular-nums">{fmtBytes(d.size_b)}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
     </SoftCard>
   );
 }
@@ -704,7 +687,7 @@ function ServerView() {
 
       {/* Database */}
       {current.database && (
-        <DatabaseCard db={current.database} pg15={current.ops?.pg15} t={t} />
+        <DatabaseCard db={current.database} t={t} />
       )}
 
       {/* Footer — last update */}
