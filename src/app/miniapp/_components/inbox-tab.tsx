@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Archive, ArchiveRestore, CornerUpLeft, Download, FileText, Inbox as InboxIcon, Mail,
-  Music, PenSquare, Reply, RotateCw, Send, Trash2, Video, X,
+  Archive, ArchiveRestore, ChevronLeft, ChevronRight, CornerUpLeft, Download, FileText,
+  Inbox as InboxIcon, Mail, Music, PenSquare, Play, Reply, RotateCw, Send, Trash2, Video, X,
 } from "lucide-react";
 import { translations, type Lang } from "@/lib/i18n";
 import { useLang } from "@/components/providers";
@@ -17,6 +17,8 @@ interface Attachment {
   filename: string;
   mime: string;
   size_bytes: number;
+  exp: number;
+  sig: string;
 }
 
 interface Msg {
@@ -181,71 +183,305 @@ function fmtBytes(n: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
+/** Minimal surface of the Telegram WebApp SDK that this tab uses. */
+interface TGWebApp {
+  isVersionAtLeast?: (v: string) => boolean;
+  downloadFile?: (
+    params: { url: string; file_name: string },
+    callback?: (accepted: boolean) => void,
+  ) => void;
+  HapticFeedback?: {
+    impactOccurred?: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void;
+    notificationOccurred?: (type: "error" | "success" | "warning") => void;
+  };
+}
+
+function telegram(): TGWebApp | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (window as unknown as { Telegram?: { WebApp?: TGWebApp } }).Telegram?.WebApp;
+}
+
 /**
- * Files dropped at /upload. The bytes are only reachable through the
- * authenticated attachment route; `?inline=1` previews the types the server
- * confirmed are safe to render, everything else is download-only.
+ * Attachment URLs carry a short-lived signature alongside the session cookie.
+ * The cookie covers everything rendered inside the web view; the signature is
+ * what makes the same URL work for Telegram's native downloader, which fetches
+ * outside the web view.
+ */
+function fileUrl(a: Attachment, opts: { inline?: boolean } = {}): string {
+  const q = new URLSearchParams({ exp: String(a.exp), sig: a.sig });
+  if (opts.inline) q.set("inline", "1");
+  return `/api/dashboard/inbox/attachment/${a.id}?${q}`;
+}
+
+function absolute(path: string): string {
+  return typeof window === "undefined" ? path : new URL(path, window.location.origin).href;
+}
+
+/**
+ * Save a file to the device. Inside Telegram (Bot API 8.0+) this opens the
+ * native "download file?" prompt, which is the only way to get a real file into
+ * the phone's storage from a Mini App. Outside it — desktop browser, or an
+ * older client — fall back to a plain download link.
+ */
+function saveFile(a: Attachment) {
+  const url = absolute(fileUrl(a));
+  const tg = telegram();
+  if (tg?.downloadFile && tg.isVersionAtLeast?.("8.0")) {
+    tg.HapticFeedback?.impactOccurred?.("light");
+    tg.downloadFile({ url, file_name: a.filename });
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = a.filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+const isImage = (a: Attachment) => a.mime.startsWith("image/");
+const isVideo = (a: Attachment) => a.mime.startsWith("video/");
+const isAudio = (a: Attachment) => a.mime.startsWith("audio/");
+const isViewable = (a: Attachment) => isImage(a) || isVideo(a);
+
+/** Full-screen viewer: tap a photo or video to open it properly, then save it. */
+function Lightbox({
+  files, index, t, onClose, onIndex,
+}: {
+  files: Attachment[];
+  index: number;
+  t: T;
+  onClose: () => void;
+  onIndex: (i: number) => void;
+}) {
+  const a = files[index];
+  const many = files.length > 1;
+
+  const go = useCallback(
+    (delta: number) => onIndex((index + delta + files.length) % files.length),
+    [index, files.length, onIndex],
+  );
+
+  // Esc closes, arrows page through. Also lock body scroll while open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (many && e.key === "ArrowRight") go(1);
+      if (many && e.key === "ArrowLeft") go(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose, go, many]);
+
+  if (!a) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black flex flex-col"
+      role="dialog"
+      aria-modal="true"
+      aria-label={a.filename}
+    >
+      {/* Top bar — sits below the Telegram header via the safe-area inset */}
+      <div
+        className="shrink-0 flex items-center gap-2 px-3 py-2.5 text-white/90"
+        style={{ paddingTop: "max(0.625rem, var(--tg-content-safe-area-inset-top, 0px))" }}
+      >
+        <button
+          onClick={onClose}
+          aria-label={t.dash.inbox.close}
+          className="shrink-0 w-9 h-9 -ml-1 inline-flex items-center justify-center rounded-full hover:bg-white/10 active:bg-white/20 transition"
+        >
+          <X size={20} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px] font-medium">{a.filename}</div>
+          <div className="text-[11px] text-white/50 tabular-nums">
+            {fmtBytes(a.size_bytes)}
+            {many ? ` · ${index + 1}/${files.length}` : ""}
+          </div>
+        </div>
+        <button
+          onClick={() => saveFile(a)}
+          className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-white text-black text-xs font-semibold hover:opacity-90 active:scale-95 transition"
+        >
+          <Download size={14} /> {t.dash.inbox.save}
+        </button>
+      </div>
+
+      {/* Media — tapping the backdrop closes, tapping the media itself doesn't */}
+      <div className="flex-1 min-h-0 relative flex items-center justify-center" onClick={onClose}>
+        {isImage(a) ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={fileUrl(a, { inline: true })}
+            alt={a.filename}
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-full object-contain select-none"
+          />
+        ) : (
+          <video
+            src={fileUrl(a, { inline: true })}
+            controls
+            autoPlay
+            playsInline
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-full"
+          />
+        )}
+
+        {many && (
+          <>
+            <button
+              onClick={(e) => { e.stopPropagation(); go(-1); }}
+              aria-label={t.dash.inbox.prev}
+              className="absolute left-1 top-1/2 -translate-y-1/2 w-10 h-10 inline-flex items-center justify-center rounded-full bg-black/40 text-white/80 hover:bg-black/60 transition"
+            >
+              <ChevronLeft size={22} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); go(1); }}
+              aria-label={t.dash.inbox.next}
+              className="absolute right-1 top-1/2 -translate-y-1/2 w-10 h-10 inline-flex items-center justify-center rounded-full bg-black/40 text-white/80 hover:bg-black/60 transition"
+            >
+              <ChevronRight size={22} />
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Filmstrip */}
+      {many && (
+        <div
+          className="shrink-0 flex gap-1.5 overflow-x-auto px-3 py-2.5"
+          style={{ paddingBottom: "max(0.625rem, var(--tg-content-safe-area-inset-bottom, 0px))" }}
+        >
+          {files.map((f, i) => (
+            <button
+              key={f.id}
+              onClick={() => onIndex(i)}
+              aria-label={f.filename}
+              className={`shrink-0 w-12 h-12 rounded-md overflow-hidden border-2 transition ${
+                i === index ? "border-white" : "border-transparent opacity-50"
+              }`}
+            >
+              {isImage(f) ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={fileUrl(f, { inline: true })} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="w-full h-full flex items-center justify-center bg-white/10 text-white/70">
+                  <Video size={16} />
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Files dropped at /upload. Photos and video open full-screen on tap;
+ * everything else is a row with a save button. Nothing is ever executed —
+ * the bytes come back from the attachment route as inert, sandboxed content.
  */
 function Attachments({ files, t }: { files: Attachment[]; t: T }) {
-  const url = (a: Attachment, inline = false) =>
-    `/api/dashboard/inbox/attachment/${a.id}${inline ? "?inline=1" : ""}`;
+  const [open, setOpen] = useState<number | null>(null);
+  const viewable = files.filter(isViewable);
+  const rest = files.filter((f) => !isViewable(f));
 
   return (
     <div className="space-y-2">
       <div className="text-[11px] font-medium text-[var(--muted)]">
         {t.dash.inbox.attachments} · {files.length}
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        {files.map((a) => {
-          const isImage = a.mime.startsWith("image/");
-          const isVideo = a.mime.startsWith("video/");
-          const isAudio = a.mime.startsWith("audio/");
-          return (
-            <div
+
+      {/* Photo / video grid */}
+      {viewable.length > 0 && (
+        <div className="grid grid-cols-3 gap-1.5">
+          {viewable.map((a, i) => (
+            <button
               key={a.id}
-              className="rounded-lg border border-[var(--card-border)] overflow-hidden bg-[var(--surface-2)]/40"
+              onClick={() => setOpen(i)}
+              aria-label={a.filename}
+              className="relative aspect-square rounded-lg overflow-hidden bg-[var(--surface-2)] group"
             >
-              {isImage && (
+              {isImage(a) ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={url(a, true)}
+                  src={fileUrl(a, { inline: true })}
                   alt={a.filename}
                   loading="lazy"
-                  className="w-full h-28 object-cover bg-black/5"
+                  className="w-full h-full object-cover transition group-active:scale-95"
                 />
+              ) : (
+                <>
+                  <video
+                    src={fileUrl(a, { inline: true })}
+                    preload="metadata"
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover bg-black"
+                  />
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                    <Play size={20} className="text-white drop-shadow" fill="currentColor" />
+                  </span>
+                </>
               )}
-              {isVideo && (
-                <video src={url(a, true)} controls preload="metadata" className="w-full h-28 bg-black object-contain" />
-              )}
-              {isAudio && <audio src={url(a, true)} controls className="w-full mt-2 px-2" />}
-              {!isImage && !isVideo && !isAudio && (
-                <div className="h-28 flex items-center justify-center text-[var(--muted)]">
-                  <FileText size={26} />
-                </div>
-              )}
-              <div className="px-2 py-1.5 flex items-center gap-1.5">
-                <span className="shrink-0 text-[var(--muted)]">
-                  {isVideo ? <Video size={12} /> : isAudio ? <Music size={12} /> : <FileText size={12} />}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[11px]" title={a.filename}>
-                  {a.filename}
-                </span>
-                <a
-                  href={url(a)}
-                  download={a.filename}
-                  aria-label={`${t.dash.inbox.download} ${a.filename}`}
-                  className="shrink-0 text-[var(--muted)] hover:text-[var(--foreground)] transition"
-                >
-                  <Download size={13} />
-                </a>
-              </div>
-              <div className="px-2 pb-1.5 text-[10px] text-[var(--muted)] tabular-nums">
+              <span className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/55 to-transparent" />
+              <span className="absolute bottom-1 left-1.5 text-[9px] font-medium text-white/90 tabular-nums">
                 {fmtBytes(a.size_bytes)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Documents, audio, everything else */}
+      {rest.map((a) => (
+        <div
+          key={a.id}
+          className="flex items-center gap-2.5 rounded-lg border border-[var(--card-border)] px-2.5 py-2"
+        >
+          <span className="shrink-0 w-8 h-8 rounded-md bg-[var(--surface-2)] flex items-center justify-center text-[var(--muted)]">
+            {isAudio(a) ? <Music size={15} /> : <FileText size={15} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-medium" title={a.filename}>
+              {a.filename}
+            </span>
+            <span className="block text-[10px] text-[var(--muted)] tabular-nums">
+              {fmtBytes(a.size_bytes)}
+            </span>
+            {isAudio(a) && (
+              <audio src={fileUrl(a, { inline: true })} controls className="w-full h-7 mt-1.5" />
+            )}
+          </span>
+          <button
+            onClick={() => saveFile(a)}
+            aria-label={`${t.dash.inbox.save} ${a.filename}`}
+            className="shrink-0 w-8 h-8 inline-flex items-center justify-center rounded-full text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)] transition"
+          >
+            <Download size={15} />
+          </button>
+        </div>
+      ))}
+
+      {open !== null && (
+        <Lightbox
+          files={viewable}
+          index={open}
+          t={t}
+          onClose={() => setOpen(null)}
+          onIndex={setOpen}
+        />
+      )}
     </div>
   );
 }

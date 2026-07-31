@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useRef, useState, type DragEvent } from "react";
-import { File as FileIcon, Image as ImageIcon, Music, Upload, Video, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import {
+  Check, File as FileIcon, Image as ImageIcon, Music, Play, Upload, Video, X,
+} from "lucide-react";
 import { useLang } from "@/components/providers";
 import { LangToggle } from "@/components/lang-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -10,11 +12,16 @@ import { ThemeToggle } from "@/components/theme-toggle";
 const CHUNK_BYTES = 4 * 1024 * 1024;
 
 type Phase = "idle" | "uploading" | "done" | "error";
+type FileState = "queued" | "uploading" | "sent" | "rejected";
 
 interface Picked {
   key: string;
   file: File;
   sent: number;
+  state: FileState;
+  reason?: string;
+  /** Object URL for a local thumbnail; revoked when the file is dropped. */
+  preview?: string;
 }
 
 interface Rejection {
@@ -31,11 +38,37 @@ function fmtBytes(n: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
-function iconFor(type: string) {
-  if (type.startsWith("image/")) return <ImageIcon size={15} />;
-  if (type.startsWith("video/")) return <Video size={15} />;
-  if (type.startsWith("audio/")) return <Music size={15} />;
-  return <FileIcon size={15} />;
+const isImage = (f: File) => f.type.startsWith("image/");
+const isVideo = (f: File) => f.type.startsWith("video/");
+
+function iconFor(file: File, size = 15) {
+  if (isImage(file)) return <ImageIcon size={size} />;
+  if (isVideo(file)) return <Video size={size} />;
+  if (file.type.startsWith("audio/")) return <Music size={size} />;
+  return <FileIcon size={size} />;
+}
+
+/** Local thumbnail, or a type icon when the browser can't render one. */
+function Thumb({ item, className = "" }: { item: Picked; className?: string }) {
+  if (item.preview && isImage(item.file)) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={item.preview} alt="" className={`object-cover ${className}`} />;
+  }
+  if (item.preview && isVideo(item.file)) {
+    return (
+      <span className={`relative block ${className}`}>
+        <video src={item.preview} preload="metadata" muted playsInline className="w-full h-full object-cover bg-black" />
+        <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+          <Play size={16} className="text-white" fill="currentColor" />
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className={`flex items-center justify-center bg-[var(--card-border)]/25 text-[var(--muted)] ${className}`}>
+      {iconFor(item.file, 18)}
+    </span>
+  );
 }
 
 /**
@@ -56,24 +89,46 @@ export function UploadClient() {
   const [note, setNote] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [rejected, setRejected] = useState<Rejection[]>([]);
   const [dragging, setDragging] = useState(false);
   const honeypot = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Release every object URL still held when the page goes away.
+  const liveUrls = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const urls = liveUrls.current;
+    return () => { urls.forEach((u) => URL.revokeObjectURL(u)); };
+  }, []);
 
   const add = useCallback((files: FileList | null) => {
     if (!files?.length) return;
     setPicked((prev) => [
       ...prev,
-      ...Array.from(files).map((file) => ({
-        key: `${file.name}:${file.size}:${file.lastModified}:${Math.random()}`,
-        file,
-        sent: 0,
-      })),
+      ...Array.from(files).map((file) => {
+        let preview: string | undefined;
+        if (isImage(file) || isVideo(file)) {
+          preview = URL.createObjectURL(file);
+          liveUrls.current.add(preview);
+        }
+        return {
+          key: `${file.name}:${file.size}:${file.lastModified}:${Math.random()}`,
+          file,
+          sent: 0,
+          state: "queued" as FileState,
+          preview,
+        };
+      }),
     ]);
     setPhase("idle");
     setError(null);
-    setRejected([]);
+  }, []);
+
+  const drop = useCallback((item: Picked) => {
+    if (item.preview) {
+      URL.revokeObjectURL(item.preview);
+      liveUrls.current.delete(item.preview);
+    }
+    setPicked((prev) => prev.filter((x) => x.key !== item.key));
   }, []);
 
   const onDrop = (e: DragEvent) => {
@@ -101,16 +156,27 @@ export function UploadClient() {
       submission_too_large: tu.tooLarge,
     })[code] ?? tu.failed;
 
+  /** Mark the files the server named as rejected, with the reason it gave. */
+  const applyRejections = (list: Rejection[]) =>
+    setPicked((prev) =>
+      prev.map((p) => {
+        const hit = list.find((r) => r.filename === p.file.name && p.state !== "sent");
+        return hit ? { ...p, state: "rejected" as FileState, reason: hit.reason } : p;
+      }),
+    );
+
   const total = picked.reduce((n, p) => n + p.file.size, 0);
-  const sent = picked.reduce((n, p) => n + p.sent, 0);
-  const pct = total > 0 ? Math.round((sent / total) * 100) : 0;
+  const sentBytes = picked.reduce((n, p) => n + p.sent, 0);
+  const pct = total > 0 ? Math.round((sentBytes / total) * 100) : 0;
+  const delivered = picked.filter((p) => p.state === "sent");
+  const deliveredBytes = delivered.reduce((n, p) => n + p.file.size, 0);
+  const refused = picked.filter((p) => p.state === "rejected");
 
   async function submit() {
     if (!picked.length || phase === "uploading") return;
     setPhase("uploading");
     setError(null);
-    setRejected([]);
-    setPicked((prev) => prev.map((p) => ({ ...p, sent: 0 })));
+    setPicked((prev) => prev.map((p) => ({ ...p, sent: 0, state: "queued", reason: undefined })));
 
     try {
       // 1. Declare the batch. The server vets names/sizes before any bytes move.
@@ -123,33 +189,32 @@ export function UploadClient() {
         }),
       });
       const init = await initRes.json();
+
       if (!initRes.ok) {
-        if (Array.isArray(init.rejected)) setRejected(init.rejected);
-        // Everything bounced: show why, per file, using the local checks.
         if (init.error === "all_rejected") {
-          setRejected(picked.map((p) => ({ filename: p.file.name, reason: "type" })));
+          // Nothing got through; the type check is what almost always did it.
+          setPicked((prev) => prev.map((p) => ({ ...p, state: "rejected", reason: "type" })));
         }
         setError(errorLabel(init.error));
         setPhase("error");
         return;
       }
+      if (Array.isArray(init.rejected) && init.rejected.length) applyRejections(init.rejected);
 
-      if (Array.isArray(init.rejected) && init.rejected.length) setRejected(init.rejected);
-
-      // The server returns only the files it accepted, in order.
-      const acceptedNames = new Set<string>(init.files.map((f: { name: string }) => f.name));
-      const queue = picked.filter((p) => acceptedNames.has(p.file.name.split(/[/\\]/).pop() ?? p.file.name));
-      const idFor = new Map<string, string>();
-      init.files.forEach((f: { id: string; name: string }, i: number) => {
-        if (queue[i]) idFor.set(queue[i].key, f.id);
-      });
+      // The server echoes each accepted file's position in the list we sent, so
+      // duplicate names can't be mixed up.
+      const accepted: { id: string; index: number }[] = init.files;
 
       // 2. Stream each file in slices.
-      for (const item of queue) {
-        const fileId = idFor.get(item.key);
-        if (!fileId) continue;
+      for (const { id: fileId, index } of accepted) {
+        const item = picked[index];
+        if (!item) continue;
+        setPicked((prev) =>
+          prev.map((p) => (p.key === item.key ? { ...p, state: "uploading" } : p)),
+        );
+
         for (let offset = 0; offset < item.file.size; offset += CHUNK_BYTES) {
-          const slice = item.file.slice(offset, Math.min(offset + CHUNK_BYTES, item.file.size));
+          const end = Math.min(offset + CHUNK_BYTES, item.file.size);
           const res = await fetch("/api/upload/chunk", {
             method: "POST",
             headers: {
@@ -158,17 +223,10 @@ export function UploadClient() {
               "x-upload-token": init.token,
               "x-file-id": fileId,
             },
-            body: slice,
+            body: item.file.slice(offset, end),
           });
           if (!res.ok) throw new Error("chunk");
-          const done = offset + CHUNK_BYTES >= item.file.size;
-          setPicked((prev) =>
-            prev.map((p) =>
-              p.key === item.key
-                ? { ...p, sent: done ? item.file.size : offset + CHUNK_BYTES }
-                : p,
-            ),
-          );
+          setPicked((prev) => prev.map((p) => (p.key === item.key ? { ...p, sent: end } : p)));
         }
       }
 
@@ -184,9 +242,16 @@ export function UploadClient() {
         setPhase("error");
         return;
       }
-      if (Array.isArray(commit.rejected) && commit.rejected.length) {
-        setRejected((prev) => [...prev, ...commit.rejected]);
-      }
+
+      const stored: string[] = (commit.stored ?? []).map((s: { filename: string }) => s.filename);
+      setPicked((prev) =>
+        prev.map((p) =>
+          p.state === "rejected" || !stored.includes(p.file.name)
+            ? p
+            : { ...p, state: "sent" as FileState, sent: p.file.size },
+        ),
+      );
+      if (Array.isArray(commit.rejected) && commit.rejected.length) applyRejections(commit.rejected);
       setPhase("done");
     } catch {
       setError(tu.failed);
@@ -195,22 +260,29 @@ export function UploadClient() {
   }
 
   function reset() {
+    picked.forEach((p) => {
+      if (p.preview) {
+        URL.revokeObjectURL(p.preview);
+        liveUrls.current.delete(p.preview);
+      }
+    });
     setPicked([]);
     setNote("");
     setPhase("idle");
     setError(null);
-    setRejected([]);
   }
 
   const inputCls =
-    "w-full h-11 px-4 border border-[var(--card-border)] bg-transparent text-sm outline-none focus:border-[var(--foreground)] transition-colors placeholder:text-[var(--card-border)]";
+    "w-full h-11 px-4 border border-[var(--card-border)] bg-transparent text-sm outline-none focus:border-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/55";
   const labelCls =
     "block text-[10px] font-bold mb-2 uppercase tracking-[0.15em] text-[var(--muted)]";
+  const btnCls =
+    "h-11 px-8 bg-[var(--foreground)] text-[var(--background)] text-[10px] font-black uppercase tracking-[0.2em] hover:opacity-75 transition-opacity disabled:opacity-30";
 
   return (
     <main className="min-h-screen px-5 py-10 sm:py-16">
       <div className="mx-auto w-full max-w-xl">
-        <div className="flex items-center justify-between mb-10">
+        <div className="flex items-center justify-between mb-12">
           <a href="/" className="text-sm font-bold tracking-tight hover:opacity-70 transition-opacity">
             kama.uz
           </a>
@@ -223,20 +295,45 @@ export function UploadClient() {
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tu.title}</h1>
         <p className="mt-2 text-sm text-[var(--muted)] leading-relaxed">{tu.sub}</p>
 
+        {/* ── Delivered ─────────────────────────────────────────────── */}
         {phase === "done" ? (
-          <div className="mt-8 border border-[var(--card-border)] p-6 text-center">
-            <p className="text-sm font-medium">{tu.success}</p>
-            {rejected.length > 0 && <RejectedList items={rejected} label={tu.partial} reasonLabel={reasonLabel} />}
-            <button
-              onClick={reset}
-              className="mt-5 h-11 px-6 bg-[var(--foreground)] text-[var(--background)] text-sm font-medium hover:opacity-85 transition"
-            >
-              {tu.sendMore}
-            </button>
+          <div className="mt-10">
+            <div className="flex items-center gap-2.5 border border-[var(--foreground)] px-4 py-3">
+              <Check size={16} className="shrink-0" />
+              <p className="text-sm font-medium">{tu.success}</p>
+            </div>
+
+            {delivered.length > 0 && (
+              <>
+                <p className={`${labelCls} mt-8`}>
+                  {tu.uploadedLabel} · {delivered.length} · {fmtBytes(deliveredBytes)}
+                </p>
+                <ul className="grid grid-cols-3 gap-2">
+                  {delivered.map((p) => (
+                    <li key={p.key} className="group">
+                      <div className="relative aspect-square border border-[var(--card-border)] overflow-hidden">
+                        <Thumb item={p} className="w-full h-full" />
+                        <span className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center bg-[var(--foreground)] text-[var(--background)]">
+                          <Check size={12} strokeWidth={3} />
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-[11px] truncate" title={p.file.name}>{p.file.name}</p>
+                      <p className="text-[10px] text-[var(--muted)] tabular-nums">{fmtBytes(p.file.size)}</p>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {refused.length > 0 && (
+              <RejectedList items={refused} label={tu.partial} reasonLabel={reasonLabel} />
+            )}
+
+            <button onClick={reset} className={`${btnCls} mt-8 w-full`}>{tu.sendMore}</button>
           </div>
         ) : (
           <>
-            {/* Drop zone */}
+            {/* ── Drop zone ───────────────────────────────────────────── */}
             <div
               onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
               onDragLeave={() => setDragging(false)}
@@ -245,15 +342,15 @@ export function UploadClient() {
               role="button"
               tabIndex={0}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") inputRef.current?.click(); }}
-              className={`mt-8 border border-dashed p-10 text-center cursor-pointer transition-colors ${
+              className={`mt-10 border border-dashed py-12 text-center cursor-pointer transition-colors ${
                 dragging
-                  ? "border-[var(--foreground)] bg-[var(--foreground)]/5"
+                  ? "border-[var(--foreground)] bg-[var(--foreground)]/[0.04]"
                   : "border-[var(--card-border)] hover:border-[var(--foreground)]/40"
               }`}
             >
-              <Upload size={24} className="mx-auto text-[var(--muted)]" />
-              <p className="mt-3 text-sm font-medium">{tu.drop}</p>
-              <p className="mt-1 text-xs text-[var(--muted)]">{tu.browse}</p>
+              <Upload size={22} className="mx-auto text-[var(--muted)]" />
+              <p className="mt-3 text-[10px] font-black uppercase tracking-[0.2em]">{tu.drop}</p>
+              <p className="mt-1.5 text-xs text-[var(--muted)]">{tu.browse}</p>
               <input
                 ref={inputRef}
                 type="file"
@@ -262,53 +359,69 @@ export function UploadClient() {
                 onChange={(e) => { add(e.target.files); e.target.value = ""; }}
               />
             </div>
-            <p className="mt-2 text-[11px] text-[var(--muted)]">
+            <p className="mt-2 text-[11px] text-[var(--muted)] leading-relaxed">
               {tu.accepted.replace("{max}", "250 MB")}
             </p>
 
-            {/* Picked files */}
+            {/* ── Picked files ────────────────────────────────────────── */}
             {picked.length > 0 && (
-              <ul className="mt-5 space-y-2">
-                {picked.map((p) => {
-                  const filePct = p.file.size ? Math.round((p.sent / p.file.size) * 100) : 0;
-                  return (
-                    <li key={p.key} className="border border-[var(--card-border)] px-3 py-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <span className="shrink-0 text-[var(--muted)]">{iconFor(p.file.type)}</span>
-                        <span className="min-w-0 flex-1 truncate text-sm" title={p.file.name}>
-                          {p.file.name}
-                        </span>
-                        <span className="shrink-0 text-[11px] text-[var(--muted)] tabular-nums">
-                          {fmtBytes(p.file.size)}
-                        </span>
+              <>
+                <div className="flex items-baseline justify-between mt-8 mb-2">
+                  <p className={`${labelCls} mb-0`}>
+                    {tu.selected} · {picked.length}
+                  </p>
+                  <p className="text-[10px] text-[var(--muted)] tabular-nums">{fmtBytes(total)}</p>
+                </div>
+                <ul className="divide-y divide-[var(--card-border)] border-y border-[var(--card-border)]">
+                  {picked.map((p) => {
+                    const filePct = p.file.size ? Math.round((p.sent / p.file.size) * 100) : 0;
+                    return (
+                      <li key={p.key} className="flex items-center gap-3 py-2.5">
+                        <div className="shrink-0 w-11 h-11 border border-[var(--card-border)] overflow-hidden">
+                          <Thumb item={p} className="w-full h-full" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm" title={p.file.name}>{p.file.name}</p>
+                          <p className="text-[11px] text-[var(--muted)] tabular-nums">
+                            {p.state === "rejected" ? (
+                              <span className="text-red-500">{reasonLabel(p.reason ?? "type")}</span>
+                            ) : p.state === "sent" ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Check size={11} /> {fmtBytes(p.file.size)}
+                              </span>
+                            ) : p.state === "uploading" ? (
+                              `${filePct}% · ${fmtBytes(p.file.size)}`
+                            ) : (
+                              fmtBytes(p.file.size)
+                            )}
+                          </p>
+                          {p.state === "uploading" && (
+                            <div className="mt-1.5 h-px bg-[var(--card-border)]">
+                              <div
+                                className="h-full bg-[var(--foreground)] transition-all duration-200"
+                                style={{ width: `${filePct}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
                         {phase !== "uploading" && (
                           <button
-                            onClick={() => setPicked((prev) => prev.filter((x) => x.key !== p.key))}
+                            onClick={() => drop(p)}
                             aria-label={`${tu.remove} ${p.file.name}`}
-                            className="shrink-0 text-[var(--muted)] hover:text-[var(--foreground)] transition"
+                            className="shrink-0 w-8 h-8 inline-flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
                           >
-                            <X size={14} />
+                            <X size={15} />
                           </button>
                         )}
-                      </div>
-                      {phase === "uploading" && (
-                        <div className="mt-2 h-0.5 bg-[var(--card-border)]">
-                          <div
-                            className="h-full bg-[var(--foreground)] transition-all duration-200"
-                            style={{ width: `${filePct}%` }}
-                          />
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
 
-            {rejected.length > 0 && <RejectedList items={rejected} label={tu.partial} reasonLabel={reasonLabel} />}
-
-            {/* Sender details */}
-            <div className="mt-6 space-y-4">
+            {/* ── Sender details ──────────────────────────────────────── */}
+            <div className="mt-8 space-y-5">
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls} htmlFor="up-name">{tu.nameLabel}</label>
@@ -330,7 +443,7 @@ export function UploadClient() {
                 <textarea
                   id="up-note" value={note} onChange={(e) => setNote(e.target.value)} rows={3}
                   placeholder={tu.notePlaceholder}
-                  className="w-full px-4 py-3 border border-[var(--card-border)] bg-transparent text-sm outline-none focus:border-[var(--foreground)] transition-colors placeholder:text-[var(--card-border)] resize-none"
+                  className="w-full px-4 py-3 border border-[var(--card-border)] bg-transparent text-sm outline-none focus:border-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/55 resize-none"
                 />
               </div>
 
@@ -341,17 +454,28 @@ export function UploadClient() {
               />
             </div>
 
-            {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
+            {error && <p className="mt-5 text-sm text-red-500">{error}</p>}
 
             <button
               onClick={submit}
               disabled={!picked.length || phase === "uploading"}
-              className="mt-6 w-full h-12 bg-[var(--foreground)] text-[var(--background)] text-sm font-medium hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              className={`${btnCls} mt-6 w-full`}
             >
               {phase === "uploading"
                 ? `${tu.sending} ${pct}%`
-                : tu.send.replace("{n}", String(picked.length))}
+                : picked.length === 1
+                  ? tu.sendOne
+                  : tu.send.replace("{n}", String(picked.length))}
             </button>
+
+            {phase === "uploading" && (
+              <div className="mt-3 h-px bg-[var(--card-border)]">
+                <div
+                  className="h-full bg-[var(--foreground)] transition-all duration-200"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            )}
           </>
         )}
       </div>
@@ -362,17 +486,17 @@ export function UploadClient() {
 function RejectedList({
   items, label, reasonLabel,
 }: {
-  items: Rejection[];
+  items: Picked[];
   label: string;
   reasonLabel: (r: string) => string;
 }) {
   return (
-    <div className="mt-4 border border-yellow-500/30 bg-yellow-500/5 px-3 py-2.5 text-left">
-      <p className="text-[11px] font-medium text-yellow-600 dark:text-yellow-500">{label}</p>
-      <ul className="mt-1.5 space-y-0.5">
-        {items.map((r, i) => (
-          <li key={`${r.filename}-${i}`} className="text-[11px] text-[var(--muted)] break-all">
-            {r.filename} — {reasonLabel(r.reason)}
+    <div className="mt-6 border border-red-500/30 px-4 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-red-500">{label}</p>
+      <ul className="mt-2 space-y-1">
+        {items.map((p) => (
+          <li key={p.key} className="text-[11px] text-[var(--muted)] break-all">
+            {p.file.name} — {reasonLabel(p.reason ?? "type")}
           </li>
         ))}
       </ul>

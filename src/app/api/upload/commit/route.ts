@@ -52,11 +52,11 @@ export async function POST(req: Request) {
   const contact = text(body.contact, 200);
 
   const total = result.stored.reduce((n, f) => n + f.size, 0);
-  const lines = [
-    ...(note ? [note, ""] : []),
-    `${result.stored.length} file${result.stored.length === 1 ? "" : "s"} · ${humanSize(total)}`,
-    ...result.stored.map((f) => `• ${f.filename} (${humanSize(f.size)})`),
-  ];
+  const summary = `${result.stored.length} file${result.stored.length === 1 ? "" : "s"} · ${humanSize(total)}`;
+  // The dashboard renders the files themselves as a gallery, so the body is the
+  // sender's own words — falling back to the summary when they wrote nothing.
+  // The manifest lives in meta as the durable record if the files are deleted.
+  const messageBody = note ?? summary;
 
   const inserted = await insertInboxMessage({
     source: "kama.uz/upload",
@@ -65,12 +65,13 @@ export async function POST(req: Request) {
     // Only store a contact string that looks like an email — the inbox reply
     // flow treats `email` as replyable.
     email: contact && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contact) ? contact : null,
-    subject: `${result.stored.length} file${result.stored.length === 1 ? "" : "s"} uploaded`,
-    message: lines.join("\n").trim() || "(no message)",
+    subject: summary,
+    message: messageBody,
     meta: {
       contact: contact ?? undefined,
       files: result.stored.length,
       bytes: total,
+      manifest: result.stored.map((f) => ({ name: f.filename, size: f.size, sha256: f.sha256 })),
       rejected: result.rejected.length ? result.rejected : undefined,
     },
     ip,

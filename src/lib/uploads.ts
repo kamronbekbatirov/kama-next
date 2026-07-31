@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { createWriteStream } from "fs";
 import { mkdir, rm, rename, stat } from "fs/promises";
 import { query } from "@/lib/db";
@@ -251,6 +251,8 @@ export function familyMaxBytes(family: Family): number {
 
 interface PendingFile {
   id: string;
+  /** Position in the client's declared list, so it can match up the response. */
+  declaredIndex: number;
   name: string;
   ext: string;
   declaredSize: number;
@@ -296,7 +298,7 @@ export interface DeclaredFile {
 export interface InitResult {
   sessionId: string;
   token: string;
-  files: { id: string; name: string; size: number }[];
+  files: { id: string; name: string; size: number; index: number }[];
   rejected: Rejection[];
 }
 
@@ -317,7 +319,7 @@ export async function createSession(
   const rejected: Rejection[] = [];
   let total = 0;
 
-  for (const d of declared) {
+  for (const [index, d] of declared.entries()) {
     const check = checkDeclaredFile(d?.name, d?.size);
     if (!check.ok) {
       rejected.push({ filename: check.name, reason: check.reason });
@@ -326,6 +328,7 @@ export async function createSession(
     total += d.size as number;
     accepted.push({
       id: randomBytes(12).toString("hex"),
+      declaredIndex: index,
       name: check.name,
       ext: check.ext,
       declaredSize: d.size as number,
@@ -366,7 +369,12 @@ export async function createSession(
     result: {
       sessionId: id,
       token: session.token,
-      files: accepted.map((f) => ({ id: f.id, name: f.name, size: f.declaredSize })),
+      files: accepted.map((f) => ({
+        id: f.id,
+        name: f.name,
+        size: f.declaredSize,
+        index: f.declaredIndex,
+      })),
       rejected,
     },
   };
@@ -571,6 +579,42 @@ export async function recordQuota(ip: string, files: StoredFile[]) {
   for (const f of files) {
     await query(`INSERT INTO upload_quota (ip, bytes) VALUES ($1, $2)`, [ip, f.size]);
   }
+}
+
+// ─── Signed download links ───────────────────────────────────────────────────
+//
+// The dashboard's own fetches carry the session cookie, but Telegram's native
+// `downloadFile` hands the URL to the OS downloader, which runs outside the web
+// view and has no cookie. So an attachment can also be fetched with a
+// short-lived signature bound to that one file id — unguessable, single-file,
+// and self-expiring, rather than opening the endpoint up.
+
+/** How long a signed link stays valid. Long enough to browse, short enough to leak harmlessly. */
+export const DOWNLOAD_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
+
+function downloadSecret(): string {
+  const s = process.env.SESSION_SECRET;
+  if (!s) throw new Error("SESSION_SECRET environment variable is required (see .env.example)");
+  return s;
+}
+
+export function signDownload(id: number | string, expMs: number): string {
+  return createHmac("sha256", downloadSecret()).update(`attachment:${id}:${expMs}`).digest("hex");
+}
+
+/** Mint `{ exp, sig }` for one attachment id. */
+export function mintDownloadToken(id: number | string): { exp: number; sig: string } {
+  const exp = Date.now() + DOWNLOAD_TOKEN_TTL_MS;
+  return { exp, sig: signDownload(id, exp) };
+}
+
+export function verifyDownloadToken(id: string, exp: unknown, sig: unknown): boolean {
+  if (typeof sig !== "string" || !sig) return false;
+  const expMs = Number(exp);
+  if (!Number.isFinite(expMs) || expMs <= Date.now()) return false;
+  const expected = Buffer.from(signDownload(id, expMs));
+  const given = Buffer.from(sig);
+  return expected.length === given.length && timingSafeEqual(expected, given);
 }
 
 /** Remove a stored file from disk (used when its inbox message is deleted). */

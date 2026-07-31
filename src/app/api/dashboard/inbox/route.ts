@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import type { InboxMessage } from "@/lib/inbox";
-import { deleteStoredFile } from "@/lib/uploads";
+import { deleteStoredFile, mintDownloadToken } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +18,9 @@ export interface Attachment {
   filename: string;
   mime: string;
   size_bytes: number;
+  /** Signature + expiry so the file can also be fetched without the cookie. */
+  exp: number;
+  sig: string;
 }
 
 /**
@@ -47,7 +50,7 @@ export async function GET(req: Request) {
     // server-side — the client addresses a file by its row id only.
     const ids = messages.map((m) => m.id);
     if (ids.length) {
-      const files = await query<Attachment & { message_id: number }>(
+      const files = await query<Omit<Attachment, "exp" | "sig"> & { message_id: number }>(
         `SELECT id, message_id, filename, mime, size_bytes::bigint AS size_bytes
            FROM inbox_attachments WHERE message_id = ANY($1::bigint[]) ORDER BY id`,
         [ids],
@@ -56,7 +59,7 @@ export async function GET(req: Request) {
       for (const f of files) {
         const { message_id, ...file } = f;
         const list = byMessage.get(Number(message_id)) ?? [];
-        list.push({ ...file, size_bytes: Number(file.size_bytes) });
+        list.push({ ...file, size_bytes: Number(file.size_bytes), ...mintDownloadToken(file.id) });
         byMessage.set(Number(message_id), list);
       }
       for (const m of messages) m.attachments = byMessage.get(Number(m.id)) ?? [];

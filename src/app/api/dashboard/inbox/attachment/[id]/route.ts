@@ -2,7 +2,7 @@ import { createReadStream } from "fs";
 import { Readable } from "stream";
 import { query } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { safeStoragePath, storedFileSize } from "@/lib/uploads";
+import { safeStoragePath, storedFileSize, verifyDownloadToken } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
 
@@ -38,13 +38,21 @@ function disposition(kind: "inline" | "attachment", filename: string): string {
  *     through a viewer;
  *   • anything not on the inline-safe list is forced to download.
  * Range requests are supported so video/audio can seek in the preview player.
+ *
+ * Two ways in: the dashboard session cookie, or a short-lived signature bound
+ * to this one attachment id. The signature exists because Telegram's native
+ * `downloadFile` fetches outside the web view, where the cookie doesn't apply.
  */
 export async function GET(req: Request, ctx: RouteContext<"/api/dashboard/inbox/attachment/[id]">) {
-  const session = await getSession();
-  if (!session?.authenticated) return Response.json({ error: "unauthorized" }, { status: 401 });
-
   const { id } = await ctx.params;
   if (!/^\d+$/.test(id)) return Response.json({ error: "bad id" }, { status: 400 });
+
+  const params = new URL(req.url).searchParams;
+  const signed = verifyDownloadToken(id, params.get("exp"), params.get("sig"));
+  if (!signed) {
+    const session = await getSession();
+    if (!session?.authenticated) return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
 
   const rows = await query<Row>(
     `SELECT filename, storage_key, mime, size_bytes::text FROM inbox_attachments WHERE id = $1`,
@@ -63,8 +71,7 @@ export async function GET(req: Request, ctx: RouteContext<"/api/dashboard/inbox/
   const size = await storedFileSize(row.storage_key);
   if (size === null) return Response.json({ error: "gone" }, { status: 410 });
 
-  const wantsInline = new URL(req.url).searchParams.get("inline") === "1";
-  const inline = wantsInline && INLINE_OK.test(row.mime);
+  const inline = params.get("inline") === "1" && INLINE_OK.test(row.mime);
 
   const headers = new Headers({
     // Unknown/never-inline types go out as opaque bytes the browser won't touch.
@@ -74,6 +81,11 @@ export async function GET(req: Request, ctx: RouteContext<"/api/dashboard/inbox/
     "Content-Security-Policy": "default-src 'none'; sandbox",
     "Cache-Control": "private, no-store",
     "Accept-Ranges": "bytes",
+    // Telegram Web hands the download to a fetch from its own origin; without
+    // this the Mini App `downloadFile` silently fails there (per the Mini Apps
+    // docs). Only Telegram's own origin is allowed — not a wildcard.
+    "Access-Control-Allow-Origin": "https://web.telegram.org",
+    "Vary": "Origin",
   });
 
   // Partial content — lets the <video>/<audio> preview seek.
