@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Archive, ArchiveRestore, CornerUpLeft, Inbox as InboxIcon, Mail,
-  PenSquare, Reply, RotateCw, Send, Trash2, X,
+  Archive, ArchiveRestore, CornerUpLeft, Download, FileText, Inbox as InboxIcon, Mail,
+  Music, PenSquare, Reply, RotateCw, Send, Trash2, Video, X,
 } from "lucide-react";
 import { translations, type Lang } from "@/lib/i18n";
 import { useLang } from "@/components/providers";
@@ -12,10 +12,17 @@ import { SoftCard, Pill, Chip, EmptyState, IconButton } from "./dashboard-ui";
 
 type T = typeof translations.en;
 
+interface Attachment {
+  id: number;
+  filename: string;
+  mime: string;
+  size_bytes: number;
+}
+
 interface Msg {
   id: number;
   source: string;
-  kind: "contact" | "feedback" | "email";
+  kind: "contact" | "feedback" | "email" | "upload";
   category: string | null;
   name: string | null;
   email: string | null;
@@ -25,6 +32,7 @@ interface Msg {
   meta: Record<string, unknown>;
   status: "new" | "read" | "archived";
   created_at: string;
+  attachments?: Attachment[];
 }
 
 interface Sent {
@@ -162,6 +170,86 @@ function EmailHtml({ html }: { html: string }) {
   );
 }
 
+// ─── Uploaded files ──────────────────────────────────────────────────────────
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+/**
+ * Files dropped at /upload. The bytes are only reachable through the
+ * authenticated attachment route; `?inline=1` previews the types the server
+ * confirmed are safe to render, everything else is download-only.
+ */
+function Attachments({ files, t }: { files: Attachment[]; t: T }) {
+  const url = (a: Attachment, inline = false) =>
+    `/api/dashboard/inbox/attachment/${a.id}${inline ? "?inline=1" : ""}`;
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] font-medium text-[var(--muted)]">
+        {t.dash.inbox.attachments} · {files.length}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {files.map((a) => {
+          const isImage = a.mime.startsWith("image/");
+          const isVideo = a.mime.startsWith("video/");
+          const isAudio = a.mime.startsWith("audio/");
+          return (
+            <div
+              key={a.id}
+              className="rounded-lg border border-[var(--card-border)] overflow-hidden bg-[var(--surface-2)]/40"
+            >
+              {isImage && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={url(a, true)}
+                  alt={a.filename}
+                  loading="lazy"
+                  className="w-full h-28 object-cover bg-black/5"
+                />
+              )}
+              {isVideo && (
+                <video src={url(a, true)} controls preload="metadata" className="w-full h-28 bg-black object-contain" />
+              )}
+              {isAudio && <audio src={url(a, true)} controls className="w-full mt-2 px-2" />}
+              {!isImage && !isVideo && !isAudio && (
+                <div className="h-28 flex items-center justify-center text-[var(--muted)]">
+                  <FileText size={26} />
+                </div>
+              )}
+              <div className="px-2 py-1.5 flex items-center gap-1.5">
+                <span className="shrink-0 text-[var(--muted)]">
+                  {isVideo ? <Video size={12} /> : isAudio ? <Music size={12} /> : <FileText size={12} />}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[11px]" title={a.filename}>
+                  {a.filename}
+                </span>
+                <a
+                  href={url(a)}
+                  download={a.filename}
+                  aria-label={`${t.dash.inbox.download} ${a.filename}`}
+                  className="shrink-0 text-[var(--muted)] hover:text-[var(--foreground)] transition"
+                >
+                  <Download size={13} />
+                </a>
+              </div>
+              <div className="px-2 pb-1.5 text-[10px] text-[var(--muted)] tabular-nums">
+                {fmtBytes(a.size_bytes)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── A received message ──────────────────────────────────────────────────────
 
 function MessageCard({
@@ -215,10 +303,23 @@ function MessageCard({
         </div>
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
           <Chip tone="muted">{m.source}</Chip>
-          <Chip tone={m.kind === "feedback" ? "info" : m.kind === "email" ? "success" : "neutral"}>
-            {m.kind === "feedback" ? t.dash.inbox.feedback : m.kind === "email" ? t.dash.inbox.email : t.dash.inbox.contact}
+          <Chip
+            tone={
+              m.kind === "feedback" ? "info"
+              : m.kind === "email" ? "success"
+              : m.kind === "upload" ? "warning"
+              : "neutral"
+            }
+          >
+            {m.kind === "feedback" ? t.dash.inbox.feedback
+              : m.kind === "email" ? t.dash.inbox.email
+              : m.kind === "upload" ? t.dash.inbox.upload
+              : t.dash.inbox.contact}
             {m.category ? ` · ${m.category}` : ""}
           </Chip>
+          {m.attachments && m.attachments.length > 0 && (
+            <Chip tone="muted">📎 {m.attachments.length}</Chip>
+          )}
           {m.subject && <span className="text-[11px] text-[var(--muted)] truncate">{m.subject}</span>}
         </div>
         {!open && (
@@ -238,6 +339,9 @@ function MessageCard({
               {m.message}
             </div>
           )}
+
+          {/* Files dropped at /upload */}
+          {m.attachments && m.attachments.length > 0 && <Attachments files={m.attachments} t={t} />}
 
           {/* Prior replies */}
           {thread.map((s) => (

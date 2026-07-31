@@ -31,6 +31,9 @@ yarn-error.log*
 .env.*
 !.env.example
 
+# visitor uploads (/upload) — data, never source
+uploads/
+
 # OS / editor
 .DS_Store
 Thumbs.db

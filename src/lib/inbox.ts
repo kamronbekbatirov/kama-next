@@ -9,7 +9,7 @@ import { query } from "@/lib/db";
  * (receipts, auth, inbound email forwarding).
  */
 
-export type InboxKind = "contact" | "feedback" | "email";
+export type InboxKind = "contact" | "feedback" | "email" | "upload";
 export type InboxStatus = "new" | "read" | "archived";
 
 export interface InboxMessage {
@@ -68,7 +68,9 @@ export async function insertInboxMessage(input: InboxInput): Promise<InsertResul
 
   const source = clean(input.source, 80) ?? "unknown";
   const kind: InboxKind =
-    input.kind === "feedback" || input.kind === "email" ? input.kind : "contact";
+    input.kind === "feedback" || input.kind === "email" || input.kind === "upload"
+      ? input.kind
+      : "contact";
   const category = clean(input.category, 40);
   const name = clean(input.name, 200);
   const email = clean(input.email, 200);

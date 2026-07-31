@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import type { InboxMessage } from "@/lib/inbox";
+import { deleteStoredFile } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,13 @@ async function auth() {
 
 const COLS = `id, source, kind, category, name, email, subject, message, html, meta,
               ip, user_agent, status, created_at, read_at`;
+
+export interface Attachment {
+  id: number;
+  filename: string;
+  mime: string;
+  size_bytes: number;
+}
 
 /**
  * GET — list messages.
@@ -30,10 +38,29 @@ export async function GET(req: Request) {
       params.push(status);
     }
 
-    const messages = await query<InboxMessage>(
+    const messages = await query<InboxMessage & { attachments?: Attachment[] }>(
       `SELECT ${COLS} FROM inbox_messages WHERE ${where} ORDER BY created_at DESC LIMIT 500`,
       params,
     );
+
+    // Attach uploaded files in one round-trip. `storage_key` deliberately stays
+    // server-side — the client addresses a file by its row id only.
+    const ids = messages.map((m) => m.id);
+    if (ids.length) {
+      const files = await query<Attachment & { message_id: number }>(
+        `SELECT id, message_id, filename, mime, size_bytes::bigint AS size_bytes
+           FROM inbox_attachments WHERE message_id = ANY($1::bigint[]) ORDER BY id`,
+        [ids],
+      );
+      const byMessage = new Map<number, Attachment[]>();
+      for (const f of files) {
+        const { message_id, ...file } = f;
+        const list = byMessage.get(Number(message_id)) ?? [];
+        list.push({ ...file, size_bytes: Number(file.size_bytes) });
+        byMessage.set(Number(message_id), list);
+      }
+      for (const m of messages) m.attachments = byMessage.get(Number(m.id)) ?? [];
+    }
 
     const countRows = await query<{ status: string; n: string }>(
       `SELECT status, COUNT(*)::text AS n FROM inbox_messages GROUP BY status`,
@@ -87,7 +114,16 @@ export async function DELETE(req: Request) {
     await auth();
     const { id } = await req.json();
     if (!id) return Response.json({ error: "id required" }, { status: 400 });
+
+    // Take the storage keys before the cascade drops the rows, so deleting a
+    // message also reclaims its bytes instead of orphaning them on disk.
+    const files = await query<{ storage_key: string }>(
+      `SELECT storage_key FROM inbox_attachments WHERE message_id = $1`,
+      [id],
+    );
     await query(`DELETE FROM inbox_messages WHERE id=$1`, [id]);
+    for (const f of files) await deleteStoredFile(f.storage_key);
+
     return Response.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

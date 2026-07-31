@@ -6,7 +6,7 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: "/",
-        disallow: ["/miniapp", "/miniapp/", "/api/", "/api"],
+        disallow: ["/miniapp", "/miniapp/", "/api/", "/api", "/upload", "/upload/"],
       },
     ],
     host: "https://kama.uz",
