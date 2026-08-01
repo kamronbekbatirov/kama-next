@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { clientIp, insertInboxMessage } from "@/lib/inbox";
-import { finalizeSession, recordQuota } from "@/lib/uploads";
+import { finalizeSession, recordQuota, type Rejection, type StoredFile } from "@/lib/uploads";
+import { escapeHtml, tgNotifyOwner } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,43 @@ function humanSize(bytes: number): string {
   let i = 0;
   while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
   return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+/** Where the notification button drops you: the inbox pane of the mini app. */
+const MINIAPP_INBOX_URL = "https://kama.uz/miniapp#server/inbox";
+
+/**
+ * Tell the owner a drop just landed. Best-effort — `tgNotifyOwner` swallows its
+ * own errors, so a Telegram outage can never fail an upload that already
+ * succeeded. Every interpolated value is escaped: filenames and the note come
+ * from a stranger.
+ */
+async function notifyOwner(d: {
+  name: string | null;
+  contact: string | null;
+  note: string | null;
+  stored: StoredFile[];
+  rejected: Rejection[];
+  total: number;
+}) {
+  const who = d.name ?? "Anonymous";
+  const lines = [
+    `📥 <b>${escapeHtml(who)}</b> sent ${d.stored.length} file${d.stored.length === 1 ? "" : "s"} · ${humanSize(d.total)}`,
+  ];
+  if (d.contact) lines.push(`✉️ ${escapeHtml(d.contact)}`);
+  if (d.note) lines.push("", `<blockquote>${escapeHtml(d.note)}</blockquote>`);
+  lines.push(
+    "",
+    ...d.stored.slice(0, 12).map((f) => `• ${escapeHtml(f.filename)} <i>(${humanSize(f.size)})</i>`),
+  );
+  if (d.stored.length > 12) lines.push(`… +${d.stored.length - 12}`);
+  if (d.rejected.length) lines.push("", `⚠️ ${d.rejected.length} refused by the file checks`);
+
+  await tgNotifyOwner(lines.join("\n"), {
+    reply_markup: {
+      inline_keyboard: [[{ text: "Open inbox", web_app: { url: MINIAPP_INBOX_URL } }]],
+    },
+  });
 }
 
 /**
@@ -88,6 +126,7 @@ export async function POST(req: Request) {
     );
   }
   await recordQuota(ip, result.stored);
+  await notifyOwner({ name, contact, note, stored: result.stored, rejected: result.rejected, total });
 
   return Response.json({
     ok: true,
