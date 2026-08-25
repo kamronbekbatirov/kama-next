@@ -1,5 +1,6 @@
 import { requireMember, UNAUTHORIZED } from "@/lib/guard";
 import { getBoard, getWeek } from "@/lib/tracker";
+import { refreshMemberPhoto } from "@/lib/members";
 import { isoToday } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,11 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  */
 export async function GET(req: Request) {
   try {
-    await requireMember();
+    const s = await requireMember();
+    // Refresh the viewer's own face, at most once a day, without making them
+    // wait for Telegram. Everyone's avatar therefore fills in through ordinary
+    // use of the board rather than needing a job of its own.
+    void refreshMemberPhoto(s.memberId, s.telegramId).catch(() => {});
     const p = new URL(req.url).searchParams;
     const end = ISO_DATE.test(p.get("end") ?? "") ? p.get("end")! : await isoToday();
     const parsed = parseInt(p.get("days") ?? "30", 10);

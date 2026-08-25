@@ -1,6 +1,6 @@
 import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
 import { revokeMember, TELEGRAM_ID } from "@/lib/auth";
-import { listMembers, upsertGuest, createInvite, getMemberById } from "@/lib/members";
+import { listMembers, upsertGuest, refreshMemberPhoto, createInvite, getMemberById } from "@/lib/members";
 import { tgSendMessage } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +37,9 @@ export async function POST(req: Request) {
 
     const member = await upsertGuest({ telegramId, displayName: name, invitedBy: owner.memberId });
     const token = await createInvite(member.id, owner.memberId);
+    // Pull their photo now: a guest who is invited but has not opened the app
+    // yet should still have a face on the board the others are looking at.
+    void refreshMemberPhoto(member.id, telegramId ?? null, true).catch(() => {});
     const url = `${SITE}/miniapp/join?t=${token}`;
 
     // Best effort: a guest who has never pressed /start cannot receive a bot

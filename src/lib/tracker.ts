@@ -234,6 +234,7 @@ export interface BoardGoal {
   days_done_30: number;
   current_run: number;
   last_day: string | null;
+  has_photo: boolean;
 }
 
 /**
@@ -266,7 +267,8 @@ export async function getBoard(end: string, days = 30): Promise<BoardGoal[]> {
               >= $1::date - 1
         GROUP BY goal_id
      )
-     SELECT g.id AS goal_id, g.member_id, m.display_name, g.title, g.metric_unit,
+     SELECT g.id AS goal_id, g.member_id, m.display_name,
+            (m.photo_file_id IS NOT NULL) AS has_photo, g.title, g.metric_unit,
             g.target_value::float AS target_value, g.period,
             COALESCE(SUM(CASE WHEN w.day > $1::date - 7 THEN 1 ELSE 0 END), 0)::int AS days_done_7,
             COALESCE(COUNT(w.day), 0)::int                                          AS days_done_30,
@@ -277,16 +279,18 @@ export async function getBoard(end: string, days = 30): Promise<BoardGoal[]> {
        LEFT JOIN win w        ON w.goal_id = g.id
        LEFT JOIN current_run cr ON cr.goal_id = g.id
       WHERE g.status = 'active'
-      GROUP BY g.id, g.member_id, m.display_name, g.title, g.metric_unit, g.target_value, g.period
+      GROUP BY g.id, g.member_id, m.display_name, m.photo_file_id, g.title,
+               g.metric_unit, g.target_value, g.period
       ORDER BY m.display_name, g.created_at`,
     [end, days],
   );
 }
 
 /** "Who did how much this week" — the comparison the first screen leads with. */
-export async function getWeek(end: string): Promise<{ member_id: string; display_name: string; done: number; goals: number }[]> {
+export async function getWeek(end: string): Promise<{ member_id: string; display_name: string; done: number; goals: number; has_photo: boolean }[]> {
   return query(
     `SELECT m.id AS member_id, m.display_name,
+            (m.photo_file_id IS NOT NULL) AS has_photo,
             COALESCE(COUNT(DISTINCT (c.goal_id, c.day)) FILTER (WHERE c.value > 0), 0)::int AS done,
             COUNT(DISTINCT g.id)::int AS goals
        FROM members m
@@ -294,7 +298,7 @@ export async function getWeek(end: string): Promise<{ member_id: string; display
        LEFT JOIN tracker_checkins c ON c.goal_id = g.id
             AND c.day > $1::date - 7 AND c.day <= $1::date
       WHERE m.revoked_at IS NULL
-      GROUP BY m.id, m.display_name
+      GROUP BY m.id, m.display_name, m.photo_file_id
       ORDER BY done DESC, m.display_name`,
     [end],
   );

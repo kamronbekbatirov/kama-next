@@ -120,6 +120,24 @@ export async function tgEditMessage(
  * Resolve a Telegram file_id to a downloadable URL.
  * Telegram caps direct downloads at 20 MB per file.
  */
+/**
+ * The file_id of a user's current profile photo, or null if they have none or
+ * have hidden it. Picks the largest size Telegram offers that still stays
+ * small — these are rendered as ~32px circles, so the biggest one is waste.
+ */
+export async function tgUserPhotoFileId(userId: string | number): Promise<string | null> {
+  try {
+    const res = await fetch(`${API}/getUserProfilePhotos?user_id=${encodeURIComponent(String(userId))}&limit=1`);
+    const body = await res.json();
+    const sizes: { file_id: string; width: number }[] = body?.result?.photos?.[0] ?? [];
+    if (!body?.ok || sizes.length === 0) return null;
+    const sorted = [...sizes].sort((a, b) => a.width - b.width);
+    return (sorted.find(s => s.width >= 160) ?? sorted[sorted.length - 1]).file_id;
+  } catch {
+    return null;
+  }
+}
+
 export async function tgGetFileUrl(fileId: string): Promise<string | null> {
   const res = await fetch(`${API}/getFile?file_id=${encodeURIComponent(fileId)}`);
   const body = await res.json();

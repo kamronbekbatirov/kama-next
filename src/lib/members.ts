@@ -1,5 +1,6 @@
 import { randomUUID, randomBytes, createHash } from "crypto";
 import { query } from "@/lib/db";
+import { tgUserPhotoFileId } from "@/lib/telegram";
 
 export type MemberRole = "owner" | "guest";
 
@@ -132,4 +133,38 @@ export async function redeemInvite(token: string, ip: string | null): Promise<Me
 /** Revoke a member: kill their invites here, sessions are killed by auth.ts. */
 export async function revokeMemberInvites(memberId: string): Promise<void> {
   await query("DELETE FROM member_invites WHERE member_id = $1 AND used_at IS NULL", [memberId]);
+}
+
+/**
+ * Keep a member's profile photo current, at most once a day.
+ *
+ * Called opportunistically rather than on a schedule: whoever opens the board
+ * refreshes their own face, and a newly invited member gets one immediately, so
+ * the board fills in through ordinary use. Failure is not worth reporting — a
+ * missing avatar falls back to initials.
+ */
+export async function refreshMemberPhoto(
+  memberId: string, telegramId: string | null, force = false,
+): Promise<void> {
+  if (!telegramId) return;
+  const rows = await query<{ stale: boolean }>(
+    `SELECT (photo_checked_at IS NULL OR photo_checked_at < NOW() - INTERVAL '1 day') AS stale
+       FROM members WHERE id = $1`,
+    [memberId],
+  );
+  if (!rows[0] || (!rows[0].stale && !force)) return;
+  const fileId = await tgUserPhotoFileId(telegramId);
+  await query(
+    "UPDATE members SET photo_file_id = $2, photo_checked_at = NOW() WHERE id = $1",
+    [memberId, fileId],
+  );
+}
+
+/** The stored file_id for a member, for the avatar proxy. */
+export async function memberPhotoFileId(memberId: string): Promise<string | null> {
+  const rows = await query<{ photo_file_id: string | null }>(
+    "SELECT photo_file_id FROM members WHERE id = $1 AND revoked_at IS NULL",
+    [memberId],
+  );
+  return rows[0]?.photo_file_id ?? null;
 }

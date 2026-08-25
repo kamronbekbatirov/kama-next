@@ -36,6 +36,7 @@ export interface BoardGoal {
   days_done_30: number;
   current_run: number;
   last_day: string | null;
+  has_photo: boolean;
 }
 
 export interface WeekRow {
@@ -43,6 +44,7 @@ export interface WeekRow {
   display_name: string;
   done: number;
   goals: number;
+  has_photo: boolean;
 }
 
 export interface Board {

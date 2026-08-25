@@ -8,6 +8,7 @@ import { useLang } from "@/components/providers";
 import { todayIn } from "../_shared";
 import { useTimezone } from "../timezone";
 import { SectionHeader, EmptyState } from "../dashboard-ui";
+import { Avatar } from "./avatar";
 import { trackerApi } from "./api";
 import type { Board } from "./types";
 
@@ -42,9 +43,10 @@ export function GroupPane({ meId }: { meId: string | null }) {
         <Card className="p-3">
           <div className="flex flex-col gap-2.5">
             {board.week.map(w => (
-              <div key={w.member_id} className="flex items-center gap-3">
+              <div key={w.member_id} className="flex items-center gap-2.5">
+                <Avatar memberId={w.member_id} name={w.display_name} hasPhoto={w.has_photo} size={26} />
                 <span className={[
-                  "text-xs w-24 shrink-0 truncate",
+                  "text-xs w-20 shrink-0 truncate",
                   w.member_id === meId ? "font-semibold" : "",
                 ].join(" ")}>
                   {w.display_name}
@@ -68,7 +70,8 @@ export function GroupPane({ meId }: { meId: string | null }) {
           <div className="flex flex-col gap-2">
             {board.goals.map(g => (
               <Card key={g.goal_id} className="p-3">
-                <div className="flex items-baseline gap-2">
+                <div className="flex items-center gap-2">
+                  <Avatar memberId={g.member_id} name={g.display_name} hasPhoto={g.has_photo} size={20} />
                   <span className={[
                     "text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] truncate",
                     g.member_id === meId ? "text-[var(--foreground)] font-semibold" : "",
