@@ -225,8 +225,25 @@ async function handleMessage(msg: TgMessage) {
   }
   const isOwner = member.role === "owner";
 
-  // Built-in commands (text only)
+  // Built-in commands (text only). These answer before the model does, so they
+  // have to branch on role themselves — a guest greeted by the owner's name and
+  // offered the owner's panels is the first thing they would ever see.
   if (text.startsWith("/start")) {
+    if (!isOwner) {
+      await tgSendMessage(
+        chatId,
+        `Привет, ${member.display_name}. Я веду общий трекер целей.\n\n` +
+        "Расскажи, что хочешь делать регулярно — я помогу превратить это в цель " +
+        "с понятной меркой и планом «когда … — я …». Дальше просто отмечайся: " +
+        "«сделал», «сегодня 5 км». Спрашивай «как я иду» или «как у всех» — " +
+        "покажу твои дни и общую картину.\n\n" +
+        "Могу напоминать в нужное время — скажи когда.\n\n" +
+        "Команды:\n" +
+        "/clear — очистить историю чата\n" +
+        "/whoami — проверить что я тебя узнал",
+      );
+      return;
+    }
     await tgSendMessage(
       chatId,
       "Привет, Камрон. Я твой персональный ассистент с полным доступом к дашборду — " +
@@ -248,7 +265,13 @@ async function handleMessage(msg: TgMessage) {
   }
 
   if (text.startsWith("/whoami")) {
-    await tgSendMessage(chatId, `Telegram ID: ${fromId}\nУзнаю как Камрон. Доступ открыт.`);
+    await tgSendMessage(
+      chatId,
+      `Telegram ID: ${fromId}\n` +
+        (isOwner
+          ? "Узнаю как Камрон. Доступ открыт."
+          : `Узнаю как ${member.display_name}. Доступ — трекер целей.`),
+    );
     return;
   }
 

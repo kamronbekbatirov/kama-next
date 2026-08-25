@@ -37,7 +37,7 @@ export const TRACKER_TOOL_DEFINITIONS: Anthropic.Tool[] = [
         metric_unit: { type: "string", description: "What is counted: km, minutes, pages, times." },
         target_value: { type: "number", description: "How much counts as done, per period. Must be > 0." },
         period: { type: "string", enum: ["day", "week"], description: "Default 'day'." },
-        cue_when: { type: "string", description: "The situation: 'after I put the kettle on'." },
+        cue_when: { type: "string", description: "The situation alone: 'after I put the kettle on'. No leading \"when\"/\"когда\" — it is rendered inside a sentence that already supplies one." },
         action_then: { type: "string", description: "The action that follows it." },
         woop_outcome: { type: "string", description: "Optional: what will be better once this is happening." },
         woop_obstacle: { type: "string", description: "Optional: the thing that usually gets in the way. Worth asking for — naming it honestly is the useful part." },

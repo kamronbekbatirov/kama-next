@@ -98,6 +98,19 @@ function cleanExtras(e: unknown): GoalExtras {
  * done. The database enforces the same rules, so neither the UI nor the bot can
  * create a goal that skips them.
  */
+/**
+ * The cue is rendered inside a sentence that already supplies the conjunction
+ * ("Когда <cue> — <action>"), so a cue that starts with one of its own reads
+ * "Когда когда сварю кофе". People write it that way, and so does the model
+ * when it echoes them, so strip it at the single point where cues are written
+ * rather than at each of the three places they are shown.
+ */
+function normaliseCue(raw: string): string {
+  const t = raw.trim();
+  const stripped = t.replace(/^(когда|если|when|if|agar|qachon)\s+/iu, "");
+  return (stripped || t).replace(/^[,\s]+/, "");
+}
+
 export function validateGoal(g: Partial<NewGoal>): string | null {
   if (!g.title?.trim()) return "title required";
   if (!g.metricUnit?.trim()) return "metric_unit required";
@@ -117,7 +130,7 @@ export async function createGoal(memberId: string, g: NewGoal): Promise<Goal> {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
      RETURNING ${GOAL_COLS}`,
     [memberId, g.title.trim(), g.metricUnit.trim(), g.targetValue, g.period ?? "day",
-     g.cueWhen.trim(), g.actionThen.trim(), g.startDate, g.endsOn ?? null,
+     normaliseCue(g.cueWhen), g.actionThen.trim(), g.startDate, g.endsOn ?? null,
      JSON.stringify(cleanExtras(g.extras))],
   );
   return rows[0];
@@ -142,7 +155,8 @@ export async function updateGoal(
      WHERE id = $1 AND member_id = $2
      RETURNING id`,
     [id, memberId, patch.title ?? null, patch.metricUnit ?? null,
-     patch.targetValue ?? null, patch.period ?? null, patch.cueWhen ?? null,
+     patch.targetValue ?? null, patch.period ?? null,
+     patch.cueWhen === undefined ? null : normaliseCue(patch.cueWhen),
      patch.actionThen ?? null, patch.endsOn ?? null, patch.status ?? null,
      patch.extras === undefined ? null : JSON.stringify(cleanExtras(patch.extras))],
   );
