@@ -1,10 +1,7 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
+const auth = requireOwner;
 
 export async function GET(req: Request) {
   try {
@@ -37,7 +34,10 @@ export async function POST(req: Request) {
       [key, JSON.stringify(value)]
     );
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("settings:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }

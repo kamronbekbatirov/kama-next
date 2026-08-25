@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 import {
   computeNextReview,
   masteryFromState,
@@ -7,10 +7,7 @@ import {
   type RecallScore,
 } from "@/lib/learn/spaced-repetition";
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
+const auth = requireOwner;
 
 export async function GET(req: Request) {
   try {
@@ -85,7 +82,10 @@ export async function POST(req: Request) {
         mastery_percent: newMastery,
       },
     });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("learn/sessions:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }

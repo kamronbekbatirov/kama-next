@@ -37,6 +37,33 @@ export async function tgSendMessage(
   return res.json();
 }
 
+/**
+ * Send a generated file as a Telegram document.
+ *
+ * `document` goes out as multipart/form-data — that's the only way to upload
+ * bytes the bot produced itself rather than a URL or a stored file_id. The
+ * cloud Bot API caps uploads at 50 MB and captions at 1024 characters; the
+ * files this app sends (a Markdown journal) are orders of magnitude smaller.
+ */
+export async function tgSendDocument(
+  chatId: number | string,
+  file: { filename: string; content: string; mime?: string },
+  opts: { caption?: string; parse_mode?: "HTML" | "Markdown" | "MarkdownV2" } = {},
+): Promise<TgSendMessageResp> {
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append(
+    "document",
+    new Blob([file.content], { type: file.mime ?? "text/markdown; charset=utf-8" }),
+    file.filename,
+  );
+  if (opts.caption) form.append("caption", opts.caption.slice(0, 1024));
+  if (opts.parse_mode) form.append("parse_mode", opts.parse_mode);
+
+  const res = await fetch(`${API}/sendDocument`, { method: "POST", body: form });
+  return res.json();
+}
+
 /** Escape the four characters Telegram's HTML parse mode cares about. */
 export function escapeHtml(s: string): string {
   return s

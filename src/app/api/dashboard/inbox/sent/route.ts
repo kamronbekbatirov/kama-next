@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/auth";
+import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
 import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -21,12 +21,14 @@ export interface SentMessage {
  *   ?in_reply_to=N  → only replies to inbox message N (for per-message threads)
  */
 export async function GET(req: Request) {
-  const s = await getSession();
-  if (!s?.authenticated) return Response.json({ error: "unauthorized" }, { status: 401 });
-
-  const inReplyTo = new URL(req.url).searchParams.get("in_reply_to");
-  const where = inReplyTo ? "WHERE in_reply_to = $1" : "";
-  const params = inReplyTo ? [Number(inReplyTo)] : [];
+  try { await requireOwner(); } catch { return UNAUTHORIZED(); }
+  // A non-numeric `?in_reply_to=` used to reach Postgres as the literal "NaN"
+  // and 500 on a bigint cast.
+  const raw = new URL(req.url).searchParams.get("in_reply_to");
+  const parsed = raw === null ? null : Number(raw);
+  const inReplyTo = parsed !== null && Number.isInteger(parsed) ? parsed : null;
+  const where = inReplyTo !== null ? "WHERE in_reply_to = $1" : "";
+  const params = inReplyTo !== null ? [inReplyTo] : [];
 
   try {
     const messages = await query<SentMessage>(
@@ -43,8 +45,7 @@ export async function GET(req: Request) {
 
 /** DELETE — { id }. Remove a sent record (does not unsend the email). */
 export async function DELETE(req: Request) {
-  const s = await getSession();
-  if (!s?.authenticated) return Response.json({ error: "unauthorized" }, { status: 401 });
+  try { await requireOwner(); } catch { return UNAUTHORIZED(); }
   try {
     const { id } = await req.json();
     if (!id) return Response.json({ error: "id required" }, { status: 400 });

@@ -142,7 +142,12 @@ function usePolled<T>(url: string, intervalMs: number): T | null {
     const fetchOnce = async () => {
       try {
         const r = await api(url);
-        if (!cancelled) setData(r as T);
+        // An error body (`{ error: "unauthorized" }` on a 401, or a 500) is
+        // truthy, so storing it made every `if (data)` guard pass and the
+        // renderers reach for `.alerts` / `.services` on a shape that has
+        // neither — the whole tab threw and blanked while the pollers kept
+        // firing. Keep the last good snapshot instead.
+        if (!cancelled && r && typeof r === "object" && !("error" in r)) setData(r as T);
       } catch { /* keep prev */ }
     };
     fetchOnce();
@@ -645,7 +650,7 @@ function ServerView() {
       )}
 
       {/* Alerts */}
-      <AlertsCard alerts={current.alerts} t={t} />
+      <AlertsCard alerts={current.alerts ?? []} t={t} />
 
       {/* Ops: backups, updates, fail2ban, ssh, oom, vuln audit */}
       {current.ops && <OpsCard ops={current.ops} t={t} />}
@@ -661,7 +666,7 @@ function ServerView() {
       <div>
         <SectionHeader
           eyebrow={t.dash.server.services}
-          title={`${services?.services.filter((s) => s.active).length ?? 0} / ${services?.services.length ?? 0} ${t.dash.server.active}`}
+          title={`${(services?.services ?? []).filter((s) => s.active).length} / ${(services?.services ?? []).length} ${t.dash.server.active}`}
           trailing={<Server size={14} className="text-[var(--muted)]" />}
         />
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
@@ -675,7 +680,7 @@ function ServerView() {
       <div>
         <SectionHeader
           eyebrow={t.dash.server.domains}
-          title={`${domains?.domains.filter((d) => d.ok).length ?? 0} / ${domains?.domains.length ?? 0} ${t.dash.server.healthy}`}
+          title={`${(domains?.domains ?? []).filter((d) => d.ok).length} / ${(domains?.domains ?? []).length} ${t.dash.server.healthy}`}
           trailing={<Globe size={14} className="text-[var(--muted)]" />}
         />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">

@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { useLang } from "@/components/providers";
+import { localeOf } from "../_shared";
 import { learnApi } from "./api";
 import type { LearnNode, LearnSession, LearnStatus, LearnSubject } from "./types";
 
@@ -27,15 +28,17 @@ function isDue(n: LearnNode): boolean {
   return new Date(n.next_review).getTime() <= Date.now();
 }
 
-function fmtDate(d: string | null): string {
+// `today` / `tomorrow` used to be Russian string literals, so an EN or UZ
+// session read "сегодня" in the middle of an English sheet.
+function fmtDate(d: string | null, locale: string, words: { today: string; tomorrow: string }): string {
   if (!d) return "—";
   const date = new Date(d);
   const now = new Date();
   const diff = Math.round((date.getTime() - now.getTime()) / 86400000);
-  if (diff <= 0) return "сегодня";
-  if (diff === 1) return "завтра";
-  if (diff < 7) return `+${diff}д`;
-  return date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  if (diff <= 0) return words.today;
+  if (diff === 1) return words.tomorrow;
+  if (diff < 7) return `+${diff}d`;
+  return date.toLocaleDateString(locale, { day: "numeric", month: "short" });
 }
 
 export function TreePane() {
@@ -55,9 +58,11 @@ export function TreePane() {
     setLoading(false);
   };
 
-  const refreshNodes = async (subjectId: number) => {
+  const refreshNodes = async (subjectId: number): Promise<LearnNode[] | null> => {
     const data = await learnApi.listNodes(subjectId);
-    setNodes(Array.isArray(data) ? data : []);
+    const list = Array.isArray(data) ? (data as LearnNode[]) : [];
+    setNodes(list);
+    return Array.isArray(data) ? list : null;
   };
 
   useEffect(() => {
@@ -131,7 +136,7 @@ export function TreePane() {
           setActiveSubject(null);
           setNodes([]);
         }}
-        onRefresh={() => refreshNodes(activeSubject.id)}
+        onRefresh={async () => { await refreshNodes(activeSubject.id); }}
         onRefreshSubject={async () => {
           await refreshSubjects();
           // re-resolve activeSubject from the freshly loaded list
@@ -154,7 +159,15 @@ export function TreePane() {
         node={openNode}
         onClose={() => setOpenNode(null)}
         onUpdated={async () => {
-          if (activeSubject) await refreshNodes(activeSubject.id);
+          if (!activeSubject) return;
+          const fresh = await refreshNodes(activeSubject.id);
+          // Re-resolve the open node from the reloaded list. Without this the
+          // sheet kept the object it was opened with, so scoring a recall left
+          // the status badge, mastery % and next-review date showing stale
+          // values until you closed and reopened it.
+          if (Array.isArray(fresh)) {
+            setOpenNode(prev => (prev ? fresh.find(n => n.id === prev.id) ?? prev : prev));
+          }
         }}
       />
     </>
@@ -556,7 +569,8 @@ function NodeDetailSheet({
   onClose: () => void;
   onUpdated: () => Promise<void>;
 }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const d = t.dash;
   const l = t.dash.learn;
   const [sessions, setSessions] = useState<LearnSession[]>([]);
   const [recallOpen, setRecallOpen] = useState(false);
@@ -625,7 +639,7 @@ function NodeDetailSheet({
               <Badge variant={STATUS_VARIANT[node.status]}>{l.statuses[node.status]}</Badge>
               <Badge variant="outline">
                 <Clock className="h-3 w-3 mr-1 inline" />
-                {l.tree.next}: {fmtDate(node.next_review)}
+                {l.tree.next}: {fmtDate(node.next_review, localeOf(lang), { today: d.log.today, tomorrow: l.tree.tomorrow })}
               </Badge>
               <Badge variant="outline">{node.mastery_percent}% {l.tree.mastery}</Badge>
             </div>
@@ -673,7 +687,7 @@ function NodeDetailSheet({
                       className="flex items-center justify-between text-xs px-3 py-2 rounded-lg bg-[var(--surface-2)]"
                     >
                       <span className="text-[var(--muted)]">
-                        {new Date(s.created_at).toLocaleString("ru-RU", {
+                        {new Date(s.created_at).toLocaleString(localeOf(lang), {
                           day: "numeric",
                           month: "short",
                           hour: "2-digit",

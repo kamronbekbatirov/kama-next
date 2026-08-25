@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
+import { isoToday } from "@/lib/timezone";
 
 const HABIT_COLUMNS = [
   "fajr", "dhuhr", "asr", "maghrib", "isha",
@@ -7,19 +8,12 @@ const HABIT_COLUMNS = [
 ] as const;
 type HabitColumn = typeof HABIT_COLUMNS[number];
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
-
-function isoToday() {
-  return new Date().toISOString().slice(0, 10);
-}
+const auth = requireOwner;
 
 export async function GET(req: Request) {
   try {
     await auth();
-    const date = new URL(req.url).searchParams.get("date") ?? isoToday();
+    const date = new URL(req.url).searchParams.get("date") ?? await isoToday();
     const rows = await query<Record<string, boolean | string>>(
       "SELECT * FROM habits WHERE date = $1", [date]);
     return Response.json(rows[0] ?? null);
@@ -28,25 +22,32 @@ export async function GET(req: Request) {
   }
 }
 
-// Bulk-set the day's habits row. The today-tab posts the whole object
-// (`{ date, fajr, water, … }`) when any checkbox flips, so we upsert all
-// columns at once.
+// Patch the day's habits row. Only the columns actually present in the payload
+// are written — every other column keeps whatever is stored.
+//
+// This used to upsert all ten columns from the request body. The tab loads the
+// row once on mount and never refetches, so if the bot marked a habit over
+// Telegram in the meantime, the next checkbox tap shipped the stale `false` back
+// and silently un-marked it. All columns are `NOT NULL DEFAULT FALSE`, so a
+// partial INSERT is safe on a fresh day.
 export async function POST(req: Request) {
   try {
     await auth();
     const body = await req.json();
-    const date = typeof body?.date === "string" ? body.date : isoToday();
+    const date = typeof body?.date === "string" ? body.date : await isoToday();
 
-    const values: Record<HabitColumn, boolean> = {} as Record<HabitColumn, boolean>;
-    for (const col of HABIT_COLUMNS) {
-      values[col] = !!body?.[col];
+    const touched = HABIT_COLUMNS.filter(c => c in (body ?? {})) as HabitColumn[];
+    if (touched.length === 0) {
+      const current = await query<Record<string, boolean | string>>(
+        "SELECT * FROM habits WHERE date = $1", [date]);
+      return Response.json(current[0] ?? null);
     }
 
-    const cols = HABIT_COLUMNS.join(", ");
-    const placeholders = HABIT_COLUMNS.map((_, i) => `$${i + 2}`).join(", ");
-    const updates = HABIT_COLUMNS.map(c => `${c} = EXCLUDED.${c}`).join(", ");
+    const cols = touched.join(", ");
+    const placeholders = touched.map((_, i) => `$${i + 2}`).join(", ");
+    const updates = touched.map(c => `${c} = EXCLUDED.${c}`).join(", ");
 
-    const params: (string | boolean)[] = [date, ...HABIT_COLUMNS.map(c => values[c])];
+    const params: (string | boolean)[] = [date, ...touched.map(c => !!body[c])];
 
     const rows = await query<Record<string, boolean | string>>(
       `INSERT INTO habits (date, ${cols})

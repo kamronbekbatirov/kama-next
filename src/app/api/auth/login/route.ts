@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { createSession, DEFAULT_PASSWORD } from "@/lib/auth";
+import { ensureOwnerMember } from "@/lib/members";
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
@@ -47,7 +48,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (constantTimeEqual(password, DEFAULT_PASSWORD)) {
+    // The password grants OWNER scope and nothing else. Guests never get one —
+    // they arrive through a single-use invite bound to their own member row.
+    const owner = await ensureOwnerMember();
+    if (!owner) return NextResponse.json({ ok: false, error: "server" }, { status: 500 });
+
     await createSession({
+      memberId: owner.id,
+      role: "owner",
       method: "password",
       kind: "web",
       userAgent: req.headers.get("user-agent"),

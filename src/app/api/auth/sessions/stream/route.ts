@@ -1,4 +1,5 @@
-import { getSession, getCurrentSid } from "@/lib/auth";
+import { getCurrentSid } from "@/lib/auth";
+import { requireMember } from "@/lib/guard";
 import { onRevoke } from "@/lib/session-events";
 
 export const dynamic = "force-dynamic";
@@ -7,8 +8,7 @@ export const dynamic = "force-dynamic";
 // revoked (from another device or via Telegram) the server pushes a `revoked`
 // event and the client drops to login immediately — no reload, no polling lag.
 export async function GET(req: Request) {
-  const s = await getSession();
-  if (!s?.authenticated) return new Response("unauthorized", { status: 401 });
+  try { await requireMember(); } catch { return new Response("unauthorized", { status: 401 }); }
   const sid = await getCurrentSid();
   if (!sid) return new Response("untracked", { status: 409 }); // legacy cookie → client falls back to polling
 

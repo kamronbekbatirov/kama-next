@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/auth";
+import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
 import {
   umami, umamiConfigured, listWebsites, periodRange,
   type Metric, type UmamiStats,
@@ -12,10 +12,7 @@ export const dynamic = "force-dynamic";
  * Analytics tab.
  */
 export async function GET(req: Request) {
-  const session = await getSession();
-  if (!session?.authenticated) {
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
+  try { await requireOwner(); } catch { return UNAUTHORIZED(); }
   if (!umamiConfigured()) return Response.json({ configured: false });
 
   const periodKey = new URL(req.url).searchParams.get("period") ?? "24h";

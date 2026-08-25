@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { Plus, Trash2, Archive, ArchiveRestore, ChevronDown, ChevronRight, AlignLeft, GripVertical, Clock, X } from "lucide-react";
+import { Plus, Trash2, Archive, ArchiveRestore, AlignLeft, GripVertical, Clock, X, Columns3, Rows3, Circle, CircleDot, CircleCheckBig } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -19,18 +19,19 @@ import {
 } from "@dnd-kit/core";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useLang } from "@/components/providers";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { TrackerTab } from "./tracker";
 import {
-  api, jPost, jPatch, jDel,
+  api, jPost, jPatch, jDel, useHashView,
   isoToLocalInput, localInputToIso, fmtDue, isOverdue,
   TODO_STATUSES, type Todo, type TodoStatus,
 } from "./_shared";
-import { Pill, Chip, IconButton, CopyButton } from "./dashboard-ui";
+import { Pill, Chip, IconButton } from "./dashboard-ui";
 import { useTimezone } from "./timezone";
 
 const PRIORITY_DOT: Record<string, string> = {
@@ -64,7 +65,55 @@ function useCoarsePointer() {
   return coarse;
 }
 
+// Board = three columns side by side (great on a laptop, cramped on a phone).
+// List = the same three columns stacked full-width, so a card gets the whole
+// screen width and the text is actually readable. Drag & drop works in both.
+type TaskView = "board" | "list";
+const VIEW_KEY = "kama:tasks:view";
+
+// `null` until resolved on the client — rendering the wrong layout for one
+// frame and snapping to the other is worse than a beat of blank space.
+function useTaskView(): [TaskView | null, (v: TaskView) => void] {
+  const [view, setView] = useState<TaskView | null>(null);
+  useEffect(() => {
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(VIEW_KEY); } catch { /* private mode */ }
+    if (saved === "board" || saved === "list") { setView(saved); return; }
+    // No preference yet — phones start on the list, wider screens on the board.
+    setView(window.matchMedia("(max-width: 640px)").matches ? "list" : "board");
+  }, []);
+  const choose = useCallback((v: TaskView) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ }
+  }, []);
+  return [view, choose];
+}
+
+/**
+ * The Tasks tab now has two panes: the owner's own kanban, and the shared
+ * tracker. It lives here rather than as a seventh nav icon because the bottom
+ * nav is a hard-coded six-column grid, and because "things I am tracking" sits
+ * naturally beside "things I am doing".
+ */
 export function TasksTab() {
+  const [pane, setPane] = useHashView("tasks", ["own", "tracker"], "own");
+  const { t: tt } = useLang();
+
+  return (
+    <div className="flex flex-col gap-3 pt-2 animate-fade-in">
+      <Tabs value={pane} onValueChange={setPane}>
+        <TabsList className="self-start">
+          <TabsTrigger value="own">{tt.dash.tabs.tasks}</TabsTrigger>
+          <TabsTrigger value="tracker">{tt.dash.tabs.tracker}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="own"><OwnTasks /></TabsContent>
+        <TabsContent value="tracker"><TrackerTab /></TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function OwnTasks() {
   const { t } = useLang();
   const d = t.dash.tasks;
   const [todos, setTodos]     = useState<Todo[]>([]);
@@ -73,6 +122,7 @@ export function TasksTab() {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const coarse = useCoarsePointer();
+  const [view, setView] = useTaskView();
 
   const load = useCallback(async () => {
     const data = await api("/api/dashboard/todos");
@@ -128,22 +178,34 @@ export function TasksTab() {
     const todo = findTodo(activeId);
     if (!todo) return;
 
-    const targetColumn = byStatus[to].filter(t => t.id !== activeId);
+    const toList = byStatus[to];
+    const droppedOnColumn = typeof overId === "string" && TODO_STATUSES.includes(overId as TodoStatus);
+
+    let newColumn: Todo[];
     let targetIndex: number;
-    if (typeof overId === "string" && TODO_STATUSES.includes(overId as TodoStatus)) {
-      targetIndex = targetColumn.length;
+
+    if (from === to) {
+      // Reorder inside one column: plain array-move on the *unfiltered* list.
+      // The old code compared an index into the list-with-the-card-removed
+      // against an index into the list-with-it-still-there, so dragging a card
+      // onto the one directly below it always compared equal and bailed out —
+      // every downward drag onto an adjacent card was a silent no-op.
+      const oldIndex = toList.findIndex(t => t.id === activeId);
+      if (oldIndex < 0) return;
+      const overIdx = droppedOnColumn ? -1 : toList.findIndex(t => t.id === Number(overId));
+      const newIndex = overIdx < 0 ? toList.length - 1 : overIdx;
+      if (oldIndex === newIndex) return;
+      newColumn = [...toList];
+      newColumn.splice(newIndex, 0, newColumn.splice(oldIndex, 1)[0]);
+      targetIndex = newIndex;
     } else {
-      const overIdx = targetColumn.findIndex(t => t.id === Number(overId));
-      targetIndex = overIdx < 0 ? targetColumn.length : overIdx;
+      const rest = toList.filter(t => t.id !== activeId);
+      const overIdx = droppedOnColumn ? -1 : rest.findIndex(t => t.id === Number(overId));
+      targetIndex = overIdx < 0 ? rest.length : overIdx;
+      newColumn = [...rest];
+      newColumn.splice(targetIndex, 0, { ...todo, status: to });
     }
 
-    if (from === to && byStatus[from].findIndex(t => t.id === activeId) === targetIndex) {
-      return;
-    }
-
-    // Build new ordering
-    const newColumn = [...targetColumn];
-    newColumn.splice(targetIndex, 0, { ...todo, status: to });
     const newPositions = newColumn.map((t, i) => ({ id: t.id, position: i, status: to }));
 
     // Optimistic update
@@ -157,13 +219,15 @@ export function TasksTab() {
       return t;
     }));
 
-    // Persist: status of moved card first, then re-pack positions in the destination column
+    // Persist: the moved card's status first, then re-pack the rest of the
+    // column. Each PATCH targets a distinct row, so they can go out together
+    // instead of one sequential round trip per card.
     await jPatch("/api/dashboard/todos", { id: activeId, status: to, position: targetIndex });
-    // Re-pack remaining cards if their position drifted
-    for (const np of newPositions) {
-      if (np.id === activeId) continue;
-      await jPatch("/api/dashboard/todos", { id: np.id, status: to, position: np.position });
-    }
+    await Promise.all(
+      newPositions
+        .filter(np => np.id !== activeId)
+        .map(np => jPatch("/api/dashboard/todos", { id: np.id, status: to, position: np.position })),
+    );
     // Reload to get fresh state
     load();
   };
@@ -181,50 +245,110 @@ export function TasksTab() {
   };
 
   const activeTodo = activeId ? findTodo(activeId) : null;
+  const openCount = byStatus.todo.length + byStatus.doing.length;
+
+  // Layout still unknown (first client frame) — hold the space, don't guess.
+  if (!view) return <div className="pt-2 min-h-[200px]" />;
+
+  // One tap walks a task forward: to do → in progress → done → to do.
+  const cycleStatus = async (todo: Todo) => {
+    const next = TODO_STATUSES[(TODO_STATUSES.indexOf(todo.status) + 1) % TODO_STATUSES.length];
+    setTodos(prev => prev.map(t => (t.id === todo.id ? { ...t, status: next, done: next === "done" } : t)));
+    await jPatch("/api/dashboard/todos", { id: todo.id, status: next });
+    load();
+  };
+
+  const catLabel = (cat: string) => d.cats[cat as keyof typeof d.cats] ?? cat;
 
   return (
     <div className="flex flex-col gap-3 pt-2 animate-fade-in">
-      <DndContext
-        sensors={sensors}
-        collisionDetection={collisionDetection}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-      >
-        <div className="grid grid-cols-3 gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-[var(--muted)] font-medium truncate">
+          {d.active}
+          <span className="ml-1.5 tabular-nums font-semibold text-[var(--foreground)]">{openCount}</span>
+        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* The archive used to sit expanded at the bottom of the page, in the
+              way of everything above it. It's a rarely-opened drawer, so it
+              lives behind this button now. */}
+          <IconButton
+            size="sm"
+            variant="outline"
+            onClick={() => setArchiveOpen(true)}
+            aria-label={d.archive}
+            title={d.archive}
+            className="relative"
+          >
+            <Archive className="h-3.5 w-3.5" />
+            {archived.length > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--muted-bg)] text-[var(--foreground)] text-[9px] font-bold leading-[15px] tabular-nums">
+                {archived.length}
+              </span>
+            )}
+          </IconButton>
+          <ViewToggle value={view} onChange={setView} labels={{ board: d.viewBoard, list: d.viewList }} />
+        </div>
+      </div>
+
+      {view === "list" ? (
+        // Rows, not cards: a tap on the status glyph advances the task, a tap
+        // on the row opens it. No drag handles — on a phone the one-tap cycle
+        // is what moving a card between columns was for.
+        <div className="flex flex-col gap-4">
           {TODO_STATUSES.map(status => (
-            <KanbanColumn
+            <TaskGroup
               key={status}
               status={status}
               todos={byStatus[status]}
               title={d.cols[status]}
               emptyHint={d.emptyColumn}
               addHint={d.addHere}
-              coarse={coarse}
+              catLabel={catLabel}
               onAdd={() => setAddingTo(status)}
-              onCardClick={(todo) => setEditing(todo)}
+              onOpen={setEditing}
+              onCycle={cycleStatus}
             />
           ))}
         </div>
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collisionDetection}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+        >
+          <div className="grid grid-cols-3 gap-2">
+            {TODO_STATUSES.map(status => (
+              <KanbanColumn
+                key={status}
+                status={status}
+                todos={byStatus[status]}
+                title={d.cols[status]}
+                emptyHint={d.emptyColumn}
+                addHint={d.addHere}
+                coarse={coarse}
+                onAdd={() => setAddingTo(status)}
+                onCardClick={(todo) => setEditing(todo)}
+              />
+            ))}
+          </div>
 
-        <DragOverlay dropAnimation={null}>
-          {activeTodo ? (
-            <TodoCard todo={activeTodo} catLabel={d.cats[activeTodo.category as keyof typeof d.cats] ?? activeTodo.category} dragging />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+          <DragOverlay dropAnimation={null}>
+            {activeTodo ? (
+              <TodoCard todo={activeTodo} catLabel={catLabel(activeTodo.category)} dragging />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      )}
 
-      <ArchiveSection
-        archived={archived}
+      <ArchiveDialog
         open={archiveOpen}
-        onToggle={() => setArchiveOpen(v => !v)}
-        labels={{
-          title: d.archive,
-          empty: d.archiveEmpty,
-          restore: d.restoreAction,
-        }}
+        archived={archived}
+        onClose={() => setArchiveOpen(false)}
+        labels={{ title: d.archive, empty: d.archiveEmpty, restore: d.restoreAction, close: t.dash.jobs.cancel }}
         onRestore={(id) => setArchived(id, false)}
-        onCardClick={(todo) => setEditing(todo)}
-        catLabel={(cat) => d.cats[cat as keyof typeof d.cats] ?? cat}
+        onOpen={(todo) => { setArchiveOpen(false); setEditing(todo); }}
+        catLabel={catLabel}
       />
 
       {addingTo && (
@@ -246,69 +370,236 @@ export function TasksTab() {
   );
 }
 
-function ArchiveSection({
-  archived, open, onToggle, labels, onRestore, onCardClick, catLabel,
+function ViewToggle({
+  value, onChange, labels,
 }: {
-  archived: Todo[];
-  open: boolean;
-  onToggle: () => void;
-  labels: { title: string; empty: string; restore: string };
-  onRestore: (id: number) => void;
-  onCardClick: (todo: Todo) => void;
-  catLabel: (cat: string) => string;
+  value: TaskView;
+  onChange: (v: TaskView) => void;
+  labels: { board: string; list: string };
 }) {
+  const opts: { id: TaskView; icon: typeof Columns3; label: string }[] = [
+    { id: "list",  icon: Rows3,    label: labels.list },
+    { id: "board", icon: Columns3, label: labels.board },
+  ];
   return (
-    <section className="mt-2">
+    <div
+      role="group"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--card-border)] bg-[var(--surface)] p-1"
+    >
+      {opts.map(o => {
+        const active = value === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onChange(o.id)}
+            aria-pressed={active}
+            aria-label={o.label}
+            title={o.label}
+            className={[
+              "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 transition-all cursor-pointer",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+              active
+                ? "bg-[var(--foreground)] text-[var(--background)] shadow-soft"
+                : "text-[var(--muted)] hover:text-[var(--foreground)]",
+            ].join(" ")}
+          >
+            <o.icon className="h-3.5 w-3.5" strokeWidth={2} />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">
+              {o.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const STATUS_GLYPH: Record<TodoStatus, typeof Circle> = {
+  todo:  Circle,
+  doing: CircleDot,
+  done:  CircleCheckBig,
+};
+
+/** One task as a row: status glyph · title · meta. Nothing card-shaped. */
+function TaskRow({
+  todo, catLabel, divider, onOpen, onCycle,
+}: {
+  todo: Todo;
+  catLabel: string;
+  divider: boolean;
+  onOpen: () => void;
+  onCycle: () => void;
+}) {
+  const { tz } = useTimezone();
+  const isDone = todo.status === "done";
+  const overdue = !isDone && isOverdue(todo.due_at);
+  const due = fmtDue(todo.due_at, tz);
+  const Glyph = STATUS_GLYPH[todo.status];
+
+  return (
+    <div className={["flex items-start gap-1", divider ? "border-t border-[var(--card-border)]" : ""].join(" ")}>
+      {/* 44px tap target — the whole point of the list view is thumb reach. */}
       <button
-        onClick={onToggle}
+        type="button"
+        onClick={onCycle}
+        aria-label={`${todo.text} — next status`}
         className={[
-          "w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl",
-          "border border-[var(--card-border)] bg-[var(--card)] hover:bg-[var(--surface-2)]",
-          "text-xs font-semibold text-[var(--muted)] hover:text-[var(--foreground)]",
-          "transition-colors cursor-pointer",
+          "shrink-0 h-11 w-11 -ml-1 inline-flex items-center justify-center rounded-full transition-colors cursor-pointer",
+          "active:bg-[var(--surface-2)]",
+          isDone ? "text-emerald-500" : todo.status === "doing" ? "text-[var(--foreground)]" : "text-[var(--muted)]",
         ].join(" ")}
       >
-        <span className="flex items-center gap-2">
-          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          <Archive className="h-3.5 w-3.5" />
-          <span className="uppercase tracking-[0.14em]">{labels.title}</span>
-        </span>
-        <span className="tabular-nums">{archived.length}</span>
+        <Glyph className="h-5 w-5" strokeWidth={2} />
       </button>
 
-      {open && (
-        <div className="mt-2 flex flex-col gap-1.5">
-          {archived.length === 0 ? (
-            <div className="text-[10px] text-center text-[var(--muted)] py-3 italic">
-              {labels.empty}
-            </div>
-          ) : (
-            archived.map(todo => (
-              <div key={todo.id} className="flex items-stretch gap-1.5">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex-1 min-w-0 text-left py-2.5 pr-1 cursor-pointer"
+      >
+        <div className={["text-sm leading-snug", isDone ? "line-through text-[var(--muted)]" : ""].join(" ")}>
+          {todo.text}
+        </div>
+        {todo.description?.trim() && (
+          <div className="text-xs text-[var(--muted)] line-clamp-1 mt-0.5">{todo.description.trim()}</div>
+        )}
+        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-[var(--muted)]">
+          <span className={["w-1.5 h-1.5 rounded-full shrink-0", PRIORITY_DOT[todo.priority] ?? "bg-[var(--muted)]"].join(" ")} />
+          <span className="uppercase tracking-wide truncate">{catLabel}</span>
+          {todo.due_at && (
+            <span className={[
+              "inline-flex items-center gap-0.5 tabular-nums whitespace-nowrap ml-auto shrink-0",
+              overdue ? "text-red-500 font-semibold" : "",
+            ].join(" ")}>
+              <Clock className="h-3 w-3" />
+              {due}
+            </span>
+          )}
+        </div>
+      </button>
+    </div>
+  );
+}
+
+/** A status section in the list view: header, rows, inline add. */
+function TaskGroup({
+  status, todos, title, emptyHint, addHint, catLabel, onAdd, onOpen, onCycle,
+}: {
+  status: TodoStatus;
+  todos: Todo[];
+  title: string;
+  emptyHint: string;
+  addHint: string;
+  catLabel: (cat: string) => string;
+  onAdd: () => void;
+  onOpen: (todo: Todo) => void;
+  onCycle: (todo: Todo) => void;
+}) {
+  return (
+    <section>
+      <div className="flex items-center gap-2 px-1 mb-1.5">
+        <span className="text-[11px] uppercase tracking-[0.16em] font-semibold text-[var(--muted)]">
+          {title}
+        </span>
+        <span className="text-[11px] tabular-nums text-[var(--muted)]">{todos.length}</span>
+        <button
+          type="button"
+          onClick={onAdd}
+          aria-label={`${addHint} — ${title}`}
+          className="ml-auto h-8 w-8 inline-flex items-center justify-center rounded-full text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+        >
+          <Plus className="h-4 w-4" strokeWidth={2.5} />
+        </button>
+      </div>
+
+      {todos.length === 0 ? (
+        <button
+          type="button"
+          onClick={onAdd}
+          className="w-full text-[11px] italic text-[var(--muted)] py-3 rounded-xl border border-dashed border-[var(--card-border)] hover:border-[var(--foreground)]/30 hover:text-[var(--foreground)] transition-colors cursor-pointer"
+        >
+          {emptyHint}
+        </button>
+      ) : (
+        <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] px-3">
+          {todos.map((todo, i) => (
+            <TaskRow
+              key={todo.id}
+              todo={todo}
+              catLabel={catLabel(todo.category)}
+              divider={i > 0}
+              onOpen={() => onOpen(todo)}
+              onCycle={() => onCycle(todo)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ArchiveDialog({
+  open, archived, onClose, labels, onRestore, onOpen, catLabel,
+}: {
+  open: boolean;
+  archived: Todo[];
+  onClose: () => void;
+  labels: { title: string; empty: string; restore: string; close: string };
+  onRestore: (id: number) => void;
+  onOpen: (todo: Todo) => void;
+  catLabel: (cat: string) => string;
+}) {
+  if (!open) return null;
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent onClose={onClose} className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Archive className="h-4 w-4" />
+            {labels.title}
+            <span className="text-xs font-normal text-[var(--muted)] tabular-nums">{archived.length}</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        {archived.length === 0 ? (
+          <div className="text-xs text-center text-[var(--muted)] py-8 italic">{labels.empty}</div>
+        ) : (
+          <div className="max-h-[60vh] overflow-y-auto -mx-1 px-1">
+            {archived.map((todo, i) => (
+              <div
+                key={todo.id}
+                className={["flex items-center gap-2", i > 0 ? "border-t border-[var(--card-border)]" : ""].join(" ")}
+              >
                 <button
-                  onClick={() => onCardClick(todo)}
-                  className="flex-1 text-left cursor-pointer"
+                  type="button"
+                  onClick={() => onOpen(todo)}
+                  className="flex-1 min-w-0 text-left py-3 cursor-pointer"
                 >
-                  <TodoCard todo={todo} catLabel={catLabel(todo.category)} />
+                  <div className="text-sm truncate">{todo.text}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-[var(--muted)] mt-0.5">
+                    {catLabel(todo.category)}
+                  </div>
                 </button>
-                <button
+                <IconButton
+                  size="sm"
+                  variant="outline"
                   onClick={() => onRestore(todo.id)}
-                  className={[
-                    "shrink-0 px-2 rounded-xl border border-[var(--card-border)] bg-[var(--card)]",
-                    "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)]",
-                    "transition-colors cursor-pointer flex items-center justify-center",
-                  ].join(" ")}
                   aria-label={labels.restore}
                   title={labels.restore}
                 >
                   <ArchiveRestore className="h-3.5 w-3.5" />
-                </button>
+                </IconButton>
               </div>
-            ))
-          )}
-        </div>
-      )}
-    </section>
+            ))}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>{labels.close}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -332,7 +623,7 @@ function KanbanColumn({
     <div
       ref={setNodeRef}
       className={[
-        "flex flex-col rounded-2xl border transition-colors p-2 gap-1.5 min-h-[180px]",
+        "flex flex-col rounded-2xl border transition-colors gap-1.5 p-2 min-h-[180px]",
         isOver
           ? "border-[var(--foreground)]/40 bg-[var(--surface-2)]"
           : "border-[var(--card-border)] bg-[var(--card)]",
@@ -342,22 +633,6 @@ function KanbanColumn({
         <div className="text-[10px] uppercase tracking-[0.16em] font-semibold text-[var(--muted)] truncate flex-1 min-w-0">
           {title}
         </div>
-        {todos.length > 0 && (
-          <CopyButton
-            size="xs"
-            className="opacity-50 hover:opacity-100 border-0"
-            getText={() =>
-              todos
-                .map((t, i) => {
-                  const body = t.text + (t.description ? `\n   ${t.description.replace(/\n/g, "\n   ")}` : "");
-                  return `${i + 1}. ${body}`;
-                })
-                .join("\n")
-            }
-            aria-label={d.copyColumn}
-            title={d.copyColumn}
-          />
-        )}
         <span className="text-[10px] tabular-nums font-semibold text-[var(--muted)] shrink-0">
           {todos.length}
         </span>
@@ -463,7 +738,7 @@ function TodoCard({
       )}
       <div className={[
         "text-xs font-medium leading-snug",
-        dragHandleProps ? "pr-5" : "",
+        dragHandleProps ? "pr-6" : "",
         isDone ? "line-through text-[var(--muted)]" : "",
       ].join(" ")}>
         {todo.text}

@@ -1,7 +1,7 @@
 import { createReadStream } from "fs";
 import { Readable } from "stream";
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
 import { safeStoragePath, storedFileSize, verifyDownloadToken } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
@@ -50,8 +50,7 @@ export async function GET(req: Request, ctx: RouteContext<"/api/dashboard/inbox/
   const params = new URL(req.url).searchParams;
   const signed = verifyDownloadToken(id, params.get("exp"), params.get("sig"));
   if (!signed) {
-    const session = await getSession();
-    if (!session?.authenticated) return Response.json({ error: "unauthorized" }, { status: 401 });
+    try { await requireOwner(); } catch { return UNAUTHORIZED(); }
   }
 
   const rows = await query<Row>(

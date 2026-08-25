@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Card } from "@/components/ui/card";
 import { useLang } from "@/components/providers";
 import { SectionHeader } from "./dashboard-ui";
+import { MembersSection } from "./settings-members";
 import { PinModal } from "./pin-modal";
 import { useTimezone, allTimeZones } from "./timezone";
 
@@ -317,6 +318,14 @@ function TimezoneSection() {
 }
 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  // Both shells mount this sheet, so it has to know the audience. The
+  // underlying routes are owner-guarded regardless — this only decides what to
+  // render, so a guest is never shown a control that would 403.
+  const [role, setRole] = useState<"owner" | "guest" | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/auth/me").then(r => r.json()).then(d => setRole(d?.role ?? null)).catch(() => {});
+  }, [open]);
   const { t } = useLang();
   const d = t.dash.settingsModal;
   const router = useRouter();
@@ -355,7 +364,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
 
           <TimezoneSection />
 
-          <NoteLockSection open={open} />
+          {role === "owner" && <NoteLockSection open={open} />}
+        {role === "owner" && <MembersSection open={open} />}
 
           <SessionsSection open={open} />
 

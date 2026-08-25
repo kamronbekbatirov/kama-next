@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +21,7 @@ type Row = {
  * svc.<unit>.active timeseries.
  */
 export async function GET() {
-  const session = await getSession();
-  if (!session?.authenticated) {
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
+  try { await requireOwner(); } catch { return UNAUTHORIZED(); }
 
   const snapshot = await query<{
     key: string;

@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/auth";
+import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
 import {
   umami, umamiConfigured, periodRange, DEFAULT_WEBSITE_ID,
   type Metric, type UmamiStats,
@@ -11,10 +11,7 @@ export const dynamic = "force-dynamic";
  * Reads the self-hosted Umami over localhost and reshapes for the Analytics tab.
  */
 export async function GET(req: Request) {
-  const session = await getSession();
-  if (!session?.authenticated) {
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
+  try { await requireOwner(); } catch { return UNAUTHORIZED(); }
 
   const sp = new URL(req.url).searchParams;
   const websiteId = sp.get("website") || DEFAULT_WEBSITE_ID;

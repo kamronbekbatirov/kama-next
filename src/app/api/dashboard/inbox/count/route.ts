@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -8,8 +8,9 @@ export const dynamic = "force-dynamic";
  * dashboard, so it stays a single cheap COUNT and never returns 401 noise.
  */
 export async function GET() {
-  const s = await getSession();
-  if (!s?.authenticated) return Response.json({ new: 0 }, { status: 401 });
+  // Keeps the benign {new:0} body on 401 — the nav badge poller reads this
+  // shape and would break on an {error} envelope.
+  try { await requireOwner(); } catch { return Response.json({ new: 0 }, { status: 401 }); }
   try {
     const rows = await query<{ n: string }>(
       `SELECT COUNT(*)::text AS n FROM inbox_messages WHERE status = 'new'`,

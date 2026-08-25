@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 
 // icon = lucide key, see @/lib/schedule-icons
 const DEFAULT_SCHEDULE = [
@@ -16,10 +16,7 @@ const DEFAULT_SCHEDULE = [
   { id: "s_isha",      start_min: 1200, end_min: 1320, label: "Рефлексия + Иша",     icon: "pray",      position: 10 },
 ];
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
+const auth = requireOwner;
 
 async function seedIfEmpty() {
   const rows = await query<{ count: string }>("SELECT COUNT(*)::text AS count FROM schedule_blocks");
@@ -59,7 +56,10 @@ export async function POST(req: Request) {
       [id, start_min, end_min, label, icon]
     );
     return Response.json(rows[0]);
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("schedule:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }
@@ -81,7 +81,10 @@ export async function PATCH(req: Request) {
       [id, start_min ?? null, end_min ?? null, label ?? null, icon ?? null, position ?? null]
     );
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("schedule:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }
@@ -103,7 +106,10 @@ export async function DELETE(req: Request) {
     if (!body.id) return Response.json({ error: "id required" }, { status: 400 });
     await query("DELETE FROM schedule_blocks WHERE id = $1", [body.id]);
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("schedule:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }

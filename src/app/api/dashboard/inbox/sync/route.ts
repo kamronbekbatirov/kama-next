@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/auth";
+import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
 import { syncReceivedEmails } from "@/lib/inbox-sync";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +12,7 @@ export async function POST(req: Request) {
   const secret = process.env.INBOX_INGEST_SECRET;
   const keyed = !!secret && req.headers.get("x-inbox-key") === secret;
   if (!keyed) {
-    const s = await getSession();
-    if (!s?.authenticated) return Response.json({ error: "unauthorized" }, { status: 401 });
+    try { await requireOwner(); } catch { return UNAUTHORIZED(); }
   }
   try {
     const result = await syncReceivedEmails();

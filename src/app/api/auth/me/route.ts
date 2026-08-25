@@ -1,19 +1,24 @@
-import { getSession, ensureTrackedSession } from "@/lib/auth";
+import { headers } from "next/headers";
+import { requireMember } from "@/lib/guard";
 
-export async function GET(req: Request) {
-  const s = await getSession();
-  if (!s?.authenticated) return Response.json({ ok: false }, { status: 401 });
-
-  // Migrate a pre-session-tracking cookie so it shows up (and is revocable) in
-  // the sessions list, without forcing a manual re-login.
-  if (!s.sid) {
-    await ensureTrackedSession({
-      userAgent: req.headers.get("user-agent"),
-      ip:
-        req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-        req.headers.get("x-real-ip") ||
-        null,
+/**
+ * Who am I? The mini app shell calls this on mount and on a heartbeat.
+ *
+ * It used to answer a bare `{ ok: true }`, which was enough when there was one
+ * person. Now it carries the role, because that is what decides which shell the
+ * caller gets.
+ */
+export async function GET() {
+  try {
+    const s = await requireMember();
+    await headers(); // keep this route dynamic
+    return Response.json({
+      ok: true,
+      role: s.role,
+      name: s.displayName,
+      memberId: s.memberId,
     });
+  } catch {
+    return Response.json({ ok: false }, { status: 401 });
   }
-  return Response.json({ ok: true });
 }

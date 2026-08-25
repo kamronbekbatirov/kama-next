@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Archive, ArchiveRestore, ChevronLeft, ChevronRight, CornerUpLeft, Download, FileText,
   Inbox as InboxIcon, Mail, Music, PenSquare, Play, Reply, RotateCw, Send, Trash2, Video, X,
@@ -85,6 +85,12 @@ function Composer({
   onCancel: () => void;
 }) {
   const [from, setFrom] = useState(senders[0] ?? "hi@kama.uz");
+  // `senders` is fetched by the parent; if the composer opened first, the state
+  // still held the fallback while the <select> rendered the first real option —
+  // and the fallback is what got posted.
+  useEffect(() => {
+    if (senders.length && !senders.includes(from)) setFrom(senders[0]);
+  }, [senders, from]);
   const [to, setTo] = useState(initial.to);
   const [subject, setSubject] = useState(initial.subject);
   const [body, setBody] = useState(initial.body);
@@ -489,12 +495,14 @@ function Attachments({ files, t }: { files: Attachment[]; t: T }) {
 // ─── A received message ──────────────────────────────────────────────────────
 
 function MessageCard({
-  m, t, senders, onChange,
+  m, t, senders, onChange, onRead,
 }: {
   m: Msg;
   t: T;
   senders: string[];
   onChange: () => void;
+  /** Fired after a silent status change that must not re-filter the list. */
+  onRead: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [replying, setReplying] = useState(false);
@@ -511,7 +519,11 @@ function MessageCard({
     const next = !open;
     setOpen(next);
     if (next) loadThread();
-    if (next && unread) jPatch("/api/dashboard/inbox", { id: m.id, action: "read" }).then(onChange);
+    // Marking read used to trigger a full reload; on the "New" filter the server
+    // then excluded this very message and it unmounted mid-read. Refresh only
+    // the unread badge, and let the list catch up on the next poll or filter
+    // change — the row stays put while it's open.
+    if (next && unread) jPatch("/api/dashboard/inbox", { id: m.id, action: "read" }).then(onRead);
   };
 
   const act = (action: string) => jPatch("/api/dashboard/inbox", { id: m.id, action }).then(onChange);
@@ -715,18 +727,41 @@ export function InboxTab() {
     });
   }, [filter]);
 
+  // `syncAndLoad` used to depend on `load`, which depends on `filter` — so the
+  // 20s interval was torn down and immediately re-fired on every filter click,
+  // and clicking through four tabs pulled Resend four times in a second. Keep
+  // the callback identity stable and reach the latest `load` through a ref.
+  const loadRef = useRef(load);
+  useEffect(() => { loadRef.current = load; }, [load]);
+
   // Pull new received emails from Resend, then refresh the list.
   const syncAndLoad = useCallback(() => {
     fetch("/api/dashboard/inbox/sync", { method: "POST" })
       .catch(() => {})
-      .finally(() => load());
-  }, [load]);
+      .finally(() => loadRef.current());
+  }, []);
+
+  // Switching filter just re-queries the list — no mail pull.
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     syncAndLoad();
     const id = setInterval(syncAndLoad, 20000);
     return () => clearInterval(id);
   }, [syncAndLoad]);
+
+  // A message marked read must not re-run the filtered query (on "New" the
+  // server would drop it and the open card would unmount). Just move the badge.
+  const onRead = useCallback(() => {
+    setData(prev => prev && {
+      ...prev,
+      counts: {
+        ...prev.counts,
+        new: Math.max(0, prev.counts.new - 1),
+        read: prev.counts.read + 1,
+      },
+    });
+  }, []);
 
   // Manual refresh — pull new mail now, with a spinner.
   const refresh = useCallback(async () => {
@@ -796,7 +831,7 @@ export function InboxTab() {
       ) : (
         <div className="space-y-2">
           {messages.map((m) => (
-            <MessageCard key={m.id} m={m} t={t} senders={senders} onChange={load} />
+            <MessageCard key={m.id} m={m} t={t} senders={senders} onChange={load} onRead={onRead} />
           ))}
         </div>
       )}

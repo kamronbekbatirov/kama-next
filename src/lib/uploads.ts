@@ -608,6 +608,29 @@ export function mintDownloadToken(id: number | string): { exp: number; sig: stri
   return { exp, sig: signDownload(id, exp) };
 }
 
+/**
+ * The same short-lived-signature trick, for things that aren't attachments.
+ * `scope` is any stable string describing exactly what the link grants — e.g.
+ * `log:2026-08-01:2026-08-15` for one journal export range.
+ */
+function signScoped(scope: string, expMs: number): string {
+  return createHmac("sha256", downloadSecret()).update(`export:${scope}:${expMs}`).digest("hex");
+}
+
+export function mintScopedToken(scope: string): { exp: number; sig: string } {
+  const exp = Date.now() + DOWNLOAD_TOKEN_TTL_MS;
+  return { exp, sig: signScoped(scope, exp) };
+}
+
+export function verifyScopedToken(scope: string, exp: unknown, sig: unknown): boolean {
+  if (typeof sig !== "string" || !sig) return false;
+  const expMs = Number(exp);
+  if (!Number.isFinite(expMs) || expMs <= Date.now()) return false;
+  const expected = Buffer.from(signScoped(scope, expMs));
+  const given = Buffer.from(sig);
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}
+
 export function verifyDownloadToken(id: string, exp: unknown, sig: unknown): boolean {
   if (typeof sig !== "string" || !sig) return false;
   const expMs = Number(exp);

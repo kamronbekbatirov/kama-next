@@ -1,10 +1,7 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
+const auth = requireOwner;
 
 export async function GET(req: Request) {
   try {
@@ -42,7 +39,10 @@ export async function POST(req: Request) {
       [subject_id, parent_id ?? null, title.trim(), description ?? null, JSON.stringify(resources ?? [])]
     );
     return Response.json(rows[0]);
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("learn/nodes:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }
@@ -76,7 +76,10 @@ export async function PATCH(req: Request) {
       ]
     );
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("learn/nodes:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }
@@ -88,7 +91,10 @@ export async function DELETE(req: Request) {
     if (!id) return Response.json({ error: "id required" }, { status: 400 });
     await query("DELETE FROM learn_nodes WHERE id = $1", [id]);
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("learn/nodes:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }

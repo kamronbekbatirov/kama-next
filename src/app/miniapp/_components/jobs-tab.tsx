@@ -108,7 +108,7 @@ export function JobsTab() {
             })}
           </div>
         ) : (
-          <div className="text-xs text-[var(--muted)] text-center py-3">No applications yet</div>
+          <div className="text-xs text-[var(--muted)] text-center py-3">{d.noApps}</div>
         )}
       </Card>
 

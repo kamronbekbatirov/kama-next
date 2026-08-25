@@ -5,7 +5,7 @@ import { Globe, ExternalLink, FileText, MousePointerClick, ArrowUp, ArrowDown, C
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { translations, type Lang } from "@/lib/i18n";
 import { useLang } from "@/components/providers";
-import { api } from "./_shared";
+import { api, localeOf } from "./_shared";
 import { SectionHeader, SoftCard, StatBlock, Pill } from "./dashboard-ui";
 import { Sparkline } from "./server-sparkline";
 
@@ -72,12 +72,14 @@ const delta = (cur: number, prev: number | undefined): number | null => {
   return ((cur - prev) / prev) * 100;
 };
 
-const REGION_NAMES = typeof Intl !== "undefined" && "DisplayNames" in Intl
-  ? new Intl.DisplayNames(["en"], { type: "region" })
-  : null;
-const countryName = (code: string | null): string => {
+// Country names follow the dashboard language, not a hardcoded "en".
+const regionNames = (locale: string): Intl.DisplayNames | null => {
+  if (typeof Intl === "undefined" || !("DisplayNames" in Intl)) return null;
+  try { return new Intl.DisplayNames([locale], { type: "region" }); } catch { return null; }
+};
+const countryName = (code: string | null, locale: string): string => {
   if (!code) return "—";
-  try { return REGION_NAMES?.of(code.toUpperCase()) ?? code; } catch { return code; }
+  try { return regionNames(locale)?.of(code.toUpperCase()) ?? code; } catch { return code; }
 };
 
 // ---------- Small pieces ---------------------------------------------------
@@ -171,7 +173,7 @@ function AllSites({ sites, a, onOpen }: { sites: SiteSummary[]; a: Labels; onOpe
 
 // ---------- Single-site detail ---------------------------------------------
 
-function SiteDetail({ data, period, a }: { data: DetailResponse | null; period: Period; a: Labels }) {
+function SiteDetail({ data, period, a, locale }: { data: DetailResponse | null; period: Period; a: Labels; locale: string }) {
   if (!data) return <div className="text-center text-[var(--muted)] py-10 text-sm">…</div>;
   if (data.ok === false) {
     return (
@@ -246,7 +248,7 @@ function SiteDetail({ data, period, a }: { data: DetailResponse | null; period: 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <BarList title={a.topPages} icon={<FileText size={14} />} items={data.pages ?? []} empty={a.empty} />
         <BarList title={a.referrers} icon={<ExternalLink size={14} />} items={data.referrers ?? []} empty={a.directOnly} format={(x) => x || a.direct} />
-        <BarList title={a.countries} icon={<Globe size={14} />} items={data.countries ?? []} empty={a.empty} format={countryName} />
+        <BarList title={a.countries} icon={<Globe size={14} />} items={data.countries ?? []} empty={a.empty} format={(x) => countryName(x, locale)} />
         <BarList title={a.browsers} icon={<MousePointerClick size={14} />} items={data.browsers ?? []} empty={a.empty} format={(x) => (x ? x[0].toUpperCase() + x.slice(1) : "—")} />
       </div>
     </div>
@@ -335,7 +337,7 @@ export function AnalyticsTab() {
       {header}
       {selected === "all"
         ? <AllSites sites={sites.sites ?? []} a={a} onOpen={(id) => setSelected(id)} />
-        : <SiteDetail data={detail} period={period} a={a} />}
+        : <SiteDetail data={detail} period={period} a={a} locale={localeOf(lang)} />}
       <div className="text-center text-[10px] text-[var(--muted)] pt-1">{a.poweredBy}</div>
     </div>
   );

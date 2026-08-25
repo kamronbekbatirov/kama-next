@@ -2,7 +2,7 @@
 
 > **My personal portfolio out front. The OS I run my whole life on, behind the login. And Claude has the keys.**
 
-[kama.uz](https://kama.uz) is two products on one codebase. The public side is a bilingual portfolio with a working contact form. The private side is a personal dashboard I open every morning — habits, learning, todos, budget, subscriptions, job applications, journal, notes, live server monitoring, traffic analytics, and a unified inbox — and Claude is plugged into it as a first-class operator over Telegram. I send a message like *"add 'pay rent' for tomorrow and mark today's reading habit done"*, and Claude actually does it: it has 41 tool definitions, one for every action my dashboard can perform (it can also read live server status and the inbox).
+[kama.uz](https://kama.uz) is two products on one codebase. The public side is a bilingual portfolio with a working contact form. The private side is a personal dashboard I open every morning — habits, learning, todos, budget, subscriptions, job applications, journal, notes, live server monitoring, traffic analytics, and a unified inbox — and Claude is plugged into it as a first-class operator over Telegram. I send a message like *"add 'pay rent' for tomorrow and mark today's reading habit done"*, and Claude actually does it: it has 54 tool definitions, one for every action my dashboard can perform (it can also read live server status and the inbox).
 
 [![Live](https://img.shields.io/badge/live-kama.uz-000?style=flat-square)](https://kama.uz)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)](https://nextjs.org)
@@ -40,21 +40,28 @@ A personal dashboard. Every byte of state lives in PostgreSQL — the previous v
 
 ## The Claude coupling
 
-Telegram → my bot → `/api/telegram/webhook` → Claude with **41 tools** — 39 mapping onto a single dashboard mutation each, plus two read tools (`get_server_status`, `get_inbox`) that surface live infra status and the inbox:
+Telegram → my bot → `/api/telegram/webhook` → Claude with **54 tools** — 49 mapping onto a single dashboard action each, plus five read tools (`get_server_status`, `get_inbox`, `list_sessions`, `get_journal_logs`, `get_analytics`) that surface live infra status, the inbox, signed-in devices, older journal entries, and site traffic:
 
 ```
-add_todo            mark_habit          add_application       add_budget_entry
-complete_todo       mark_custom_habit   update_application    delete_budget_entry
-update_todo         add_custom_habit    delete_application    set_initial_balance
-delete_todo         delete_custom_habit
-                                        add_subscription      save_journal_log
-add_schedule_block  add_note            update_subscription   add_learn_subject
-update_schedule_..  update_note         delete_subscription   update_learn_subject
-delete_schedule_..  delete_note                               delete_learn_subject
-reset_schedule                                                add_learn_node
-                    add_method_entry    log_recall_session    update_learn_node
-                    update_method_entry                       delete_learn_node
-                    delete_method_entry
+add_todo            mark_habit           add_application       add_budget_entry
+complete_todo       mark_custom_habit    update_application    delete_budget_entry
+uncomplete_todo     add_custom_habit     delete_application    update_budget_entry
+update_todo         rename_custom_habit                        set_initial_balance
+delete_todo         delete_custom_habit  add_subscription
+archive_todo                             update_subscription   save_journal_log
+                    add_note             delete_subscription
+add_schedule_block  update_note                                add_learn_subject
+update_schedule_..  delete_note          log_recall_session    update_learn_subject
+delete_schedule_..                                             delete_learn_subject
+reset_schedule      add_method_entry     list_sessions*        add_learn_node
+                    update_method_entry  revoke_session        update_learn_node
+                    delete_method_entry  end_all_sessions      delete_learn_node
+
+mark_inbox_message  send_email            set_note_lock         get_journal_logs*
+delete_inbox_msg    sync_inbox            reset_habits          send_journal_file
+set_timezone                                                    get_analytics*
+
+* read tools: get_server_status, get_inbox, list_sessions
 ```
 
 Conversation history (with token + prompt-cache stats) lives in `telegram_messages`, so Claude has multi-day context across chats.
@@ -68,7 +75,7 @@ Conversation history (with token + prompt-cache stats) lives in `telegram_messag
 | UI | React 19, Tailwind CSS 4, shadcn-style primitives |
 | Database | PostgreSQL 16 via the `pg` pool |
 | Auth | Custom HMAC-SHA256 signed cookies (Edge-safe) + Telegram `initData` |
-| AI | Anthropic SDK · Claude (Sonnet 4.6 by default, set via `ANTHROPIC_MODEL`) · prompt caching on |
+| AI | Anthropic SDK · Claude (Sonnet 5 by default, set via `ANTHROPIC_MODEL`) · prompt caching on the tool list + system instructions |
 | Email | Resend — transactional send + inbound receiving API (polled into the inbox) |
 | Analytics | Self-hosted Umami |
 
@@ -136,7 +143,7 @@ src/
 │   ├── auth.ts                      HMAC-SHA256 signed session cookies (Edge-safe)
 │   ├── db.ts                        pg pool + helpers · single point of DB access
 │   ├── anthropic.ts                 Claude wrapper · prompt caching enabled
-│   ├── anthropic-tools.ts           39 tool definitions → DB mutations
+│   ├── anthropic-tools.ts           54 tool definitions → DB mutations
 │   ├── telegram.ts                  sendMessage / sendChatAction / truncate
 │   ├── learn/                       Spaced-repetition engine (SM-2)
 │   │   └── spaced-repetition.ts     interval/ease/next_review math
@@ -144,7 +151,9 @@ src/
 │   └── utils.ts
 └── middleware.ts                    /miniapp/* gate — redirects unauth → /login
 
-migrations/                          Forward-only SQL migrations (001–009)
+migrations/                          Forward-only SQL migrations (000–010)
+├── 000_core_tables.sql              todos · daily_log · notes · applications
+│                                    · budget_entries
 ├── 001_learn.sql                    subjects · nodes · recall_sessions
 ├── 002_dashboard_db.sql             todos · habits · schedule · subscriptions
 │                                    · budget · journal · applications · notes
@@ -174,7 +183,7 @@ public/                              Icons + apple-touch-icon
 - ⚠️ **Single-tenant.** There is exactly one user — `OWNER_TELEGRAM_ID`. Every API endpoint should refuse other Telegram IDs. Don't add multi-tenant code paths.
 - ⚠️ **Two auth flows, one cookie.** Password login and Telegram WebApp initData both produce the same `iron-session`-style cookie via `src/lib/auth.ts`. Add new flows on top of this — don't introduce a parallel session.
 - ⚠️ **Tool-use parity.** Whenever you add a dashboard mutation, also add a matching tool in `anthropic-tools.ts`. Otherwise Claude can read but not write that module — and that breaks the "operate by chat" promise.
-- ⚠️ **Prompt caching is on.** The system prompt + tool list is sent with `cache_control: ephemeral`. Don't break the cache by inlining variable content into the system block; put per-conversation context in `messages` instead.
+- ⚠️ **Prompt caching is on.** `buildSystemPrompt()` returns `{ stable, volatile }`; `runChat` sends them as two system blocks with a `cache_control: ephemeral` breakpoint on the stable one, so the tool list + invariant instructions are cached across turns. The live dashboard snapshot embeds the current minute, so it MUST stay in the `volatile` half — moving anything variable into `stable` silently destroys the cache. Verify with `cache_read_tokens` in `telegram_messages`.
 - ⚠️ **Edge-runtime auth.** `middleware.ts` runs on the Edge runtime — `src/lib/auth.ts` therefore uses Web Crypto's `crypto.subtle`, not Node's `crypto`. Don't import Node-only modules into auth code.
 - **Migrations are idempotent and forward-only.** Every `CREATE TABLE` uses `IF NOT EXISTS`. Re-running them on an existing DB is safe. There are no down migrations.
 - **Postgres `pg` pool, not Prisma.** Raw SQL throughout `src/lib/db.ts` and the route handlers. Don't introduce an ORM.

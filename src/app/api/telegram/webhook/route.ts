@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { query } from "@/lib/db";
 import { TELEGRAM_ID } from "@/lib/auth";
+import { getMemberByTelegramId, ensureOwnerMember } from "@/lib/members";
+import { getTimezone } from "@/lib/timezone";
 import {
   tgSendMessage,
   tgSendChatAction,
@@ -10,7 +12,7 @@ import {
   truncateForTelegram,
 } from "@/lib/telegram";
 import { transcribeAudio } from "@/lib/whisper";
-import { buildSystemPrompt, runChat, type ChatTurn, type UserMessageInput } from "@/lib/anthropic";
+import { buildSystemPrompt, buildGuestSystemPrompt, runChat, type ChatTurn, type UserMessageInput } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -211,11 +213,17 @@ async function handleMessage(msg: TgMessage) {
   const text = (msg.text ?? "").trim();
   const caption = (msg.caption ?? "").trim();
 
-  // Hard gate: only the configured Telegram ID may interact
-  if (fromId !== TELEGRAM_ID) {
+  // Gate: the owner, or an invited member of the shared tracker. Anyone else is
+  // turned away. A revoked member stops resolving here immediately, so pulling
+  // someone's access also cuts off the bot.
+  const member = fromId === TELEGRAM_ID
+    ? await ensureOwnerMember()
+    : await getMemberByTelegramId(fromId);
+  if (!member) {
     await tgSendMessage(chatId, "Sorry — this is a private assistant.");
     return;
   }
+  const isOwner = member.role === "owner";
 
   // Built-in commands (text only)
   if (text.startsWith("/start")) {
@@ -302,8 +310,21 @@ async function handleMessage(msg: TgMessage) {
     .map(r => ({ role: r.role as "user" | "assistant", content: r.content }));
 
   try {
-    const systemPrompt = await buildSystemPrompt();
-    const result = await runChat(systemPrompt, history, userInput);
+    // Two entirely separate context builds. A guest's prompt never touches the
+    // owner's snapshot, and their tool set is a different module.
+    const systemPrompt = isOwner
+      ? await buildSystemPrompt()
+      : await buildGuestSystemPrompt(member);
+    const result = isOwner
+      ? await runChat(systemPrompt, history, userInput)
+      : await runChat(systemPrompt, history, userInput, {
+          kind: "guest",
+          ctx: {
+            memberId: member.id,
+            displayName: member.display_name,
+            tz: member.tz ?? (await getTimezone()),
+          },
+        });
     clearInterval(typingInterval);
 
     const finalText = truncateForTelegram(result.text || "(пустой ответ)");

@@ -7,14 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useLang } from "@/components/providers";
-import { api, jPost, jPatch, jDel, type BudgetEntry, type Subscription } from "./_shared";
+import { api, jPost, jPatch, jDel, fmtDay, localeOf, type BudgetEntry, type Subscription } from "./_shared";
 import { SectionHeader, Pill, IconButton, EmptyState, Chip, SoftCard } from "./dashboard-ui";
 
 export function BudgetTab() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const d = t.dash.budget;
   const [entries, setEntries]               = useState<BudgetEntry[]>([]);
+  const [totals, setTotals]                 = useState({ income: 0, expense: 0, spend30: 0 });
   const [initialBalance, setInitialBalanceState] = useState<number>(0);
+  const [balanceDraft, setBalanceDraft]     = useState("");
   const [subs, setSubs]                     = useState<Subscription[]>([]);
   const [adding, setAdding]                 = useState(false);
   const [addingSub, setAddingSub]           = useState(false);
@@ -27,7 +29,12 @@ export function BudgetTab() {
 
   const load = useCallback(async () => {
     const data = await api("/api/dashboard/budget");
-    if (Array.isArray(data)) setEntries(data);
+    if (data && Array.isArray(data.entries)) {
+      setEntries(data.entries);
+      // Aggregates come from the server across *all* rows — the list is capped
+      // at 30 and must never be the basis for the balance.
+      if (data.totals) setTotals(data.totals);
+    }
   }, []);
   useEffect(() => {
     load();
@@ -39,9 +46,19 @@ export function BudgetTab() {
     });
   }, [load]);
 
-  const setInitialBalance = (v: number) => {
-    setInitialBalanceState(v);
-    jPost("/api/dashboard/settings", { key: "initial_balance", value: v });
+  // Committed on OK / blur, not on every keystroke — the old version POSTed per
+  // character, and `value={initialBalance || ""}` blanked the field the moment
+  // the parsed value hit 0, so typing "0…" wiped it and persisted 0.
+  const commitBalance = () => {
+    const v = parseFloat(balanceDraft);
+    const next = Number.isFinite(v) ? v : 0;
+    setInitialBalanceState(next);
+    setEditBalance(false);
+    jPost("/api/dashboard/settings", { key: "initial_balance", value: next });
+  };
+  const openBalanceEdit = () => {
+    setBalanceDraft(String(initialBalance));
+    setEditBalance(true);
   };
   const toggleSubActive = async (id: string) => {
     const sub = subs.find(s => s.id === id);
@@ -53,9 +70,11 @@ export function BudgetTab() {
 
   const activeSubs   = subs.filter(s => s.active);
   const subMonthly   = activeSubs.reduce((s, sub) => s + sub.amount, 0);
-  const entrySpend   = entries.filter(e => e.type === "expense").reduce((s, e) => s + Number(e.amount), 0);
-  const balance      = initialBalance + entries.reduce((s, e) => e.type === "income" ? s + Number(e.amount) : s - Number(e.amount), 0);
-  const totalMonthly = entrySpend + subMonthly;
+  const balance      = initialBalance + totals.income - totals.expense;
+  // "/mo" now means the trailing 30 days, which is what the label always claimed
+  // — it used to sum every expense ever loaded, so runway sank over time
+  // regardless of actual spending.
+  const totalMonthly = totals.spend30 + subMonthly;
   const runway       = totalMonthly > 0 ? Math.floor(balance / (totalMonthly / 30)) : null;
 
   const addSub = async () => {
@@ -92,17 +111,16 @@ export function BudgetTab() {
           "text-4xl font-bold tabular-nums tracking-tight",
           balance < 0 ? "text-red-500" : "",
         ].join(" ")}>
-          ${Math.abs(balance).toLocaleString()}
-          {balance < 0 && <span className="text-xl text-red-500 align-top ml-1">−</span>}
+          {balance < 0 && "−"}${Math.abs(balance).toLocaleString()}
         </div>
         <div className="grid grid-cols-2 gap-3 mt-5 pt-4 border-t border-[var(--card-border)]">
           <div>
             <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium">{d.spent}</div>
-            <div className="text-xl font-semibold tabular-nums mt-0.5">${totalMonthly.toLocaleString()}<span className="text-xs text-[var(--muted)]">/mo</span></div>
+            <div className="text-xl font-semibold tabular-nums mt-0.5">${totalMonthly.toLocaleString()}<span className="text-xs text-[var(--muted)]">{d.perMonth}</span></div>
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium">{d.subTotal}</div>
-            <div className="text-xl font-semibold tabular-nums mt-0.5">${subMonthly.toLocaleString()}<span className="text-xs text-[var(--muted)]">/mo</span></div>
+            <div className="text-xl font-semibold tabular-nums mt-0.5">${subMonthly.toLocaleString()}<span className="text-xs text-[var(--muted)]">{d.perMonth}</span></div>
           </div>
         </div>
         <div className="mt-4 flex items-center gap-2">
@@ -110,14 +128,17 @@ export function BudgetTab() {
             <>
               <Input
                 type="number"
-                value={initialBalance || ""}
-                onChange={e => setInitialBalance(parseFloat(e.target.value) || 0)}
+                inputMode="decimal"
+                value={balanceDraft}
+                onChange={e => setBalanceDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") commitBalance(); }}
+                onBlur={commitBalance}
                 placeholder={d.initialBalance}
                 className="h-8 text-xs tabular-nums"
                 autoFocus
               />
               <button
-                onClick={() => setEditBalance(false)}
+                onClick={commitBalance}
                 className="h-8 px-3 rounded-lg bg-[var(--foreground)] text-[var(--background)] text-xs font-semibold hover:opacity-85 transition-opacity shrink-0"
               >
                 OK
@@ -125,7 +146,7 @@ export function BudgetTab() {
             </>
           ) : (
             <button
-              onClick={() => setEditBalance(true)}
+              onClick={openBalanceEdit}
               className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors flex items-center gap-1.5"
             >
               <Pencil className="h-3 w-3" />
@@ -327,7 +348,7 @@ export function BudgetTab() {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{sub.name}</div>
-                      <div className="text-[11px] text-[var(--muted)]">{sub.day} число каждого месяца</div>
+                      <div className="text-[11px] text-[var(--muted)]">{d.everyMonth.replace("{n}", String(sub.day))}</div>
                     </div>
                     <div className="text-sm font-semibold tabular-nums shrink-0">
                       {sub.currency}{sub.amount.toLocaleString()}
@@ -371,7 +392,7 @@ export function BudgetTab() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{e.description || e.category || "—"}</div>
-                    <div className="text-[11px] text-[var(--muted)] tabular-nums">{e.date}</div>
+                    <div className="text-[11px] text-[var(--muted)] tabular-nums">{fmtDay(e.date, localeOf(lang), { day: "numeric", month: "short", year: "numeric" })}</div>
                   </div>
                   <div className={[
                     "text-sm font-semibold tabular-nums shrink-0",

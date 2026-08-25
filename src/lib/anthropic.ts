@@ -2,7 +2,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { query } from "@/lib/db";
 import { TOOL_DEFINITIONS, executeTool } from "@/lib/anthropic-tools";
 import { getServerStatus, type ServerStatus } from "@/lib/server-status";
-import { getTimezone } from "@/lib/timezone";
+import { getTimezone, isoDateIn, isoToday } from "@/lib/timezone";
+import { TRACKER_TOOL_DEFINITIONS, executeTrackerTool, type GuestContext } from "@/lib/tracker-tools";
+import { listGoals, getBoard, getWeek } from "@/lib/tracker";
+import type { Member } from "@/lib/members";
 
 export const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -11,14 +14,19 @@ const MAX_TOOL_ITERATIONS = 10;
 // Was 2048 — too small for batch-style asks ("add these 19 applications"),
 // since each tool_use block costs a few dozen tokens of JSON input and the
 // model would hit the cap, emit stop_reason=max_tokens, and never run tools.
-const MAX_OUTPUT_TOKENS = 8192;
+//
+// Then 8192, which is too small again on Sonnet 5: adaptive thinking runs by
+// default when `thinking` is omitted, and max_tokens caps thinking *plus*
+// response text together. 16000 is the recommended ceiling for non-streaming
+// requests — high enough to leave thinking room, low enough to stay under the
+// SDK's HTTP timeout.
+const MAX_OUTPUT_TOKENS = 16000;
 
 const PRAYER_IDS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
 
 function fmtMin(m: number) {
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
-function isoToday() { return new Date().toISOString().slice(0, 10); }
 // Notes are stored as rich-text HTML (older / Claude-written notes may be plain
 // text). Flatten to readable text for the snapshot.
 function htmlToText(content: string): string {
@@ -55,7 +63,7 @@ interface DashboardSnapshot {
   schedule: { id: string; start_min: number; end_min: number; label: string; icon: string }[];
   prayersToday: Record<string, boolean>;
   habitsList: { id: string; label: string; builtin: boolean; done: boolean }[];
-  todos: { id: number; text: string; category: string; priority: string; status: string; created_at: string; due_at: string | null }[];
+  todos: { id: number; text: string; description: string | null; category: string; priority: string; status: string; created_at: string; due_at: string | null }[];
   recentlyCompletedTodos: { id: number; text: string; category: string; done_at: string }[];
   archivedTodos: { id: number; text: string; category: string; priority: string; status: string }[];
   applications: { id: number; company: string; role: string; status: string; notes: string | null }[];
@@ -76,14 +84,16 @@ interface DashboardSnapshot {
 }
 
 export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
-  const dt = isoToday();
   const now = new Date();
   const tz = await getTimezone();
+  // "Today" must be the owner's calendar day, not the server's UTC one — the
+  // snapshot's habits/journal lookups key off it.
+  const dt = isoDateIn(tz, now);
 
   const [
     schedule, habitsToday, habitDefs, customDoneRows,
     todos, recentlyCompletedTodos, archivedTodos, applications,
-    budgetEntries, subs, balanceSetting,
+    budgetEntries, budgetTotals, subs, balanceSetting,
     learnSubjects, learnNodes, learnMethods, recentRecallSessions,
     recentLogs, recentNotes, reviewQueue,
   ] = await Promise.all([
@@ -99,8 +109,8 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     query<{ habit_id: string; done: boolean }>(
       "SELECT habit_id, done FROM habit_custom_completions WHERE date = $1", [dt]
     ),
-    query<{ id: number; text: string; category: string; priority: string; status: string; created_at: string; due_at: string | null }>(
-      `SELECT id, text, category, priority, status, created_at, due_at::text FROM todos
+    query<{ id: number; text: string; description: string | null; category: string; priority: string; status: string; created_at: string; due_at: string | null }>(
+      `SELECT id, text, description, category, priority, status, created_at, due_at::text FROM todos
        WHERE archived = FALSE AND status <> 'done'
        ORDER BY status, position ASC, created_at DESC LIMIT 40`
     ),
@@ -117,6 +127,15 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     ),
     query<{ id: number; type: string; amount: number; description: string | null; category: string | null; date: string }>(
       "SELECT id, type, amount::float AS amount, description, category, date::text FROM budget_entries ORDER BY date DESC, created_at DESC LIMIT 30"
+    ),
+    query<{ income: number; expense: number; spend30: number }>(
+      `SELECT
+         COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0)::float  AS income,
+         COALESCE(SUM(amount) FILTER (WHERE type = 'expense'), 0)::float AS expense,
+         COALESCE(SUM(amount) FILTER (
+           WHERE type = 'expense' AND date >= CURRENT_DATE - 30
+         ), 0)::float AS spend30
+       FROM budget_entries`
     ),
     query<{ id: string; name: string; amount: number; currency: string; day: number; active: boolean }>(
       "SELECT id, name, amount::float AS amount, currency, day, active FROM subscriptions"
@@ -159,11 +178,13 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
   const customDone = Object.fromEntries(customDoneRows.map(r => [r.habit_id, r.done]));
 
   const initialBalance = Number(balanceSetting[0]?.value ?? 0);
-  const balance = initialBalance + budgetEntries.reduce(
-    (s, e) => e.type === "income" ? s + Number(e.amount) : s - Number(e.amount), 0,
-  );
-  const monthlySpend = budgetEntries.filter(e => e.type === "expense")
-    .reduce((s, e) => s + Number(e.amount), 0)
+  // `budgetEntries` is the 30 most recent rows for display only — deriving the
+  // balance from it silently drops entry 31 and older, and summing every
+  // expense in it labelled the lifetime total as "monthly". Both figures come
+  // from the aggregate over the whole table instead.
+  const totals = budgetTotals[0] ?? { income: 0, expense: 0, spend30: 0 };
+  const balance = initialBalance + totals.income - totals.expense;
+  const monthlySpend = totals.spend30
     + subs.filter(x => x.active).reduce((s, x) => s + Number(x.amount), 0);
 
   const prayersToday = Object.fromEntries(
@@ -243,7 +264,12 @@ ${snap.schedule.length === 0 ? "(empty)" : snap.schedule.map(b =>
         const overdue = !isNaN(d.getTime()) && d.getTime() < Date.now();
         due = ` (due ${fmtDueTz(t.due_at, snap.tz)}${overdue ? " — OVERDUE" : ""})`;
       }
-      return `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}${due}`;
+      // Descriptions are where the actual instructions live; without them
+      // Claude could see a card titled "book flight" and nothing else.
+      const body = t.description?.trim()
+        ? `\n    ${t.description.trim().replace(/\n/g, "\n    ")}`
+        : "";
+      return `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}${due}${body}`;
     };
     const blocks: string[] = [`# Active todos (kanban)`];
     if (todoCol.length > 0)  blocks.push(`## To do (${todoCol.length})\n${todoCol.slice(0, 20).map(fmt).join("\n")}`);
@@ -273,7 +299,7 @@ ${snap.applications.slice(0, 20).map(a =>
   sections.push(`# Budget
 - Initial balance: $${snap.budget.initialBalance.toLocaleString()}
 - Current balance: $${snap.budget.balance.toLocaleString()}
-- Monthly outflow (spend + active subs): $${snap.budget.monthlySpend.toLocaleString()}
+- Outflow, last 30 days (spend + active subs): $${snap.budget.monthlySpend.toLocaleString()}
 - Subscriptions: ${snap.budget.subscriptions.filter(s => s.active).length} active${
     snap.budget.subscriptions.filter(s => s.active).length === 0 ? "" :
     ` (${snap.budget.subscriptions.filter(s => s.active).map(s => `[${s.id}] ${s.name} ${s.currency}${s.amount}/mo on day ${s.day}`).join(", ")})`
@@ -460,7 +486,10 @@ Tool-use principles:
 - Habits: prayers (fajr/dhuhr/asr/maghrib/isha) are always 5 fixed columns — use mark_habit. Other habits come from his habit_defs list (shown under "Tracked habits"); builtin ones (marked with *) also use mark_habit with their column id; non-builtin (custom) use mark_custom_habit with the habit_id string.
 - If the user asks for something modified across multiple items, run multiple tool calls in sequence.
 - get_server_status returns the full live infra picture (per-service, per-domain, SSL days, DB sizes, backups, security counters). The "# Server" section below is only a summary — call the tool when he asks for server/site details, and read its alerts list before declaring everything fine.
-- get_inbox returns messages people sent through the contact/feedback forms on his sites. The "# Inbox" section below shows only the unread count and a peek — call the tool to read full message text, an email address to reply to, or older/archived messages.
+- get_inbox returns messages people sent through the contact/feedback forms on his sites. The "# Inbox" section below shows only the unread count and a peek — call the tool to read full message text, an email address to reply to, or older/archived messages. mark_inbox_message and delete_inbox_message triage it; send_email replies (pass in_reply_to and the recipient is filled in from the original).
+- The journal is the "# Recent journal" section below — but that's only the last 7 days. For anything older ("what did I write in June", "when did I last mention X", "summarise last month") call get_journal_logs with a date range. To hand him the journal as a file, call send_journal_file: it delivers a real .md attachment in this chat, so don't paste the entries into your reply as well.
+- save_journal_log writes the journal. Fields you omit are left alone, so a request like "write in today's log that I finished the API" only needs what_worked — don't blank the rest by guessing.
+- get_analytics reads live traffic for his sites (visitors, pageviews, top pages/referrers/countries).
 - After tools succeed, summarise what you did. Don't dump tool output verbatim.
 - If a tool fails, explain why; don't silently retry the same call.
 
@@ -468,18 +497,80 @@ Behaviour:
 - He writes mostly in Russian. Match his language; reply in Russian unless he writes in English or Uzbek.
 - Be direct, warm, and concise. He's 23, building software in London, working toward a software engineer role and broader self-mastery (math from first principles, methodical learning, deliberate practice). Treat him like a smart friend, not a help desk.
 - Use the data below to ground every answer. Don't make stuff up — if the data doesn't say, say so.
+- Yesterday's "tomorrow" line in the journal is what he decided today's most important task would be. When he checks in during the day, treat it as the thing that matters, and notice when it never got done.
 - For learning questions, lean on the science he already trusts (active recall, spaced repetition, deliberate practice, WOOP, Locke-Latham, implementation intentions).
 - Telegram renders standard Markdown (bold **like this**, italic *like this*, \`inline code\`, \`\`\`fenced code\`\`\`, [links](https://…)). Use it where it earns its keep — bolding a key name or value, fencing code/IDs/commands. Don't overdo headings or asterisk-bullets; prefer short paragraphs. For lists use plain "•" or numbers, not "- ".
 - If asked something dangerous, illegal, or ethically off, decline briefly without lecturing.
 
 His current data:`;
 
+const GUEST_SYSTEM_INSTRUCTIONS = `You are the assistant for a small shared goal tracker. The person you are talking to is one member of a group who agreed to track their goals where the others can see them.
+
+You can see and change ONLY this person's own goals and check-ins, plus the group's shared board. You have no access to anything else — if they ask about a journal, budget, server, inbox, notes or anyone's private data, say plainly that you only handle the tracker.
+
+How the tracker works, and why:
+- A goal needs something countable — a unit and a target number. If they describe something vague like "exercise more" or "read more", ask what to count and how much before creating it. A goal you cannot check in against is one that quietly disappears.
+- A goal also needs an if-then plan: the situation, and the action that follows it ("when I put the kettle on, I put my running shoes by the door"). Deciding when and where in advance is what turns an intention into an action, so do not create a goal without one — ask.
+- Checking in is one number for one day. Twice in a day corrects the number, it does not add.
+
+How to talk about progress:
+- A missed day is ordinary. Never call it a failure, never say a streak is broken or lost, never imply they are falling behind. If they went quiet, ask what got in the way — the obstacle is usually the useful part.
+- Habits take a long and highly variable time to become automatic. Never quote a number of days as a deadline or a promise, and never say "21 days".
+- Never quote study figures, effect sizes or percentages at them.
+- Comparison with the others is fine and is part of the point, but keep it factual and never turn it into a judgement about the person.
+
+Style: match their language (they mostly write Russian). Be brief and warm. Telegram renders standard Markdown; use it lightly.`;
+
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
 }
 
-export async function buildSystemPrompt(): Promise<string> {
+/**
+ * The system prompt in two halves.
+ *
+ * `stable` is byte-identical between turns, so it (plus the tool list, which
+ * the API places ahead of it in the cacheable prefix) can carry a
+ * `cache_control` breakpoint. `volatile` is the live dashboard snapshot — it
+ * embeds the current minute and the server metrics, so anything after it
+ * changes on every request and must stay outside the cached prefix.
+ */
+export interface SystemPrompt {
+  stable: string;
+  volatile: string;
+}
+
+/** The guest's context: their goals, and the shared board. Nothing else. */
+export async function buildGuestSystemPrompt(member: Member): Promise<SystemPrompt> {
+  const tz = member.tz ?? (await getTimezone());
+  const today = isoDateIn(tz);
+  const [goals, board, week] = await Promise.all([
+    listGoals(member.id),
+    getBoard(today, 30),
+    getWeek(today),
+  ]);
+
+  const mine = goals.length === 0
+    ? "(none yet)"
+    : goals.map(g =>
+        `- #${g.id} ${g.title} — ${g.target_value} ${g.metric_unit}/${g.period}; plan: when ${g.cue_when}, then ${g.action_then}`,
+      ).join("\n");
+
+  const boardLines = board.map(g =>
+    `- ${g.display_name}: ${g.title} — ${g.days_done_7}/7 days, ${g.days_done_30} in 30, ${g.current_run} in a row`,
+  ).join("\n") || "(no goals on the board yet)";
+
+  const weekLine = week.map(w => `${w.display_name}: ${w.done}`).join(" · ") || "(nothing yet)";
+
+  return {
+    stable: GUEST_SYSTEM_INSTRUCTIONS,
+    // The name and the live figures go here, never in `stable` — a per-person
+    // stable block would mint one prompt-cache entry per guest.
+    volatile: `# Now\n- ${member.display_name} · ${today} (${tz})\n\n# My goals\n${mine}\n\n# This week\n${weekLine}\n\n# Shared board (30 days)\n${boardLines}`,
+  };
+}
+
+export async function buildSystemPrompt(): Promise<SystemPrompt> {
   const [snap, server, inbox] = await Promise.all([
     getDashboardSnapshot(),
     // Server/inbox sections are best-effort: a hiccup must not kill the chat.
@@ -488,7 +579,10 @@ export async function buildSystemPrompt(): Promise<string> {
   ]);
   const serverSection = server ? `\n\n${renderServerContext(server)}` : "";
   const inboxSection = inbox ? `\n\n${renderInboxContext(inbox)}` : "";
-  return `${SYSTEM_INSTRUCTIONS}\n\n${renderContext(snap)}${serverSection}${inboxSection}`;
+  return {
+    stable: SYSTEM_INSTRUCTIONS,
+    volatile: `${renderContext(snap)}${serverSection}${inboxSection}`,
+  };
 }
 
 export interface ChatResult {
@@ -512,11 +606,30 @@ export interface ChatResult {
  */
 export type UserMessageInput = string | Array<Anthropic.ContentBlockParam>;
 
+/**
+ * Who this turn is for. A guest gets a different tool list AND a different
+ * dispatcher — not a filtered view of the owner's, so a tool added to the
+ * owner's switch can never become reachable here by accident.
+ */
+export type ChatAudience =
+  | { kind: "owner" }
+  | { kind: "guest"; ctx: GuestContext };
+
 export async function runChat(
-  systemPrompt: string,
+  systemPrompt: SystemPrompt,
   history: ChatTurn[],
   userMessage: UserMessageInput,
+  audience: ChatAudience = { kind: "owner" },
 ): Promise<ChatResult> {
+  const tools = audience.kind === "owner" ? TOOL_DEFINITIONS : TRACKER_TOOL_DEFINITIONS;
+  // Cache the tool list + the invariant instructions. The breakpoint sits at the
+  // end of the stable block, and everything the API hashes before it (tools,
+  // then this text) is reused across turns. README claimed this was on; it was
+  // not, so every turn re-billed ~22k input tokens at full price.
+  const system: Anthropic.TextBlockParam[] = [
+    { type: "text", text: systemPrompt.stable, cache_control: { type: "ephemeral" } },
+    { type: "text", text: systemPrompt.volatile },
+  ];
   const messages: Anthropic.MessageParam[] = [
     ...history.map(t => ({ role: t.role, content: t.content })),
     { role: "user" as const, content: userMessage },
@@ -529,9 +642,9 @@ export async function runChat(
     const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: MAX_OUTPUT_TOKENS,
-      system: systemPrompt,
+      system,
       messages,
-      tools: TOOL_DEFINITIONS,
+      tools,
     });
 
     if (response.stop_reason === "max_tokens") {
@@ -566,7 +679,9 @@ export async function runChat(
       let resultText: string;
       let isError = false;
       try {
-        resultText = await executeTool(block.name, block.input as Record<string, unknown>);
+        resultText = audience.kind === "owner"
+          ? await executeTool(block.name, block.input as Record<string, unknown>)
+          : await executeTrackerTool(block.name, block.input as Record<string, unknown>, audience.ctx);
       } catch (e) {
         resultText = "Error: " + (e instanceof Error ? e.message : String(e));
         isError = true;

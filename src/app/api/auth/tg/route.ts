@@ -1,6 +1,7 @@
 import { createHmac } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createSession, TELEGRAM_ID } from "@/lib/auth";
+import { ensureOwnerMember, getMemberByTelegramId } from "@/lib/members";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 
@@ -44,7 +45,19 @@ export async function POST(req: NextRequest) {
     }
 
     const user = verifyInitData(init_data);
-    if (!user || user.id !== TELEGRAM_ID) {
+    if (!user) {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 403 });
+    }
+
+    // Telegram already proved who this is — initData is HMAC'd with the bot
+    // token. The only question left is whether they are a member. The owner is
+    // matched first so a fresh install still works before the id is backfilled.
+    const member =
+      user.id === TELEGRAM_ID
+        ? await ensureOwnerMember()
+        : await getMemberByTelegramId(user.id);
+
+    if (!member) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 403 });
     }
 
@@ -53,13 +66,15 @@ export async function POST(req: NextRequest) {
       req.headers.get("x-real-ip") ||
       null;
     await createSession({
+      memberId: member.id,
+      role: member.role,
       method: "telegram",
       telegramId: user.id,
       kind: "telegram",
       userAgent: req.headers.get("user-agent"),
       ip,
     });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, role: member.role });
   } catch {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 403 });
   }

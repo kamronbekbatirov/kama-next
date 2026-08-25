@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Pencil, Plus, RotateCcw, X, Check } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Pencil, Plus, RotateCcw, X, Check, Target } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useLang } from "@/components/providers";
 import {
-  api, jPost, jPatch, jDel, today, fmtMin, parseTime,
+  api, jPost, jPatch, jDel, todayIn, shiftDate, fmtMin, parseTime, localeOf,
   PRAYER_IDS,
   type HabitsRow, type ScheduleBlock, type HabitDef,
 } from "./_shared";
@@ -20,7 +20,7 @@ import { SCHEDULE_ICON_KEYS, DEFAULT_ICON_KEY } from "@/lib/schedule-icons";
 interface ScheduleRow { id: string; start_min: number; end_min: number; label: string; icon: string; position: number; }
 
 export function TodayTab() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const d = t.dash.today;
   const { tz } = useTimezone();
 
@@ -30,17 +30,41 @@ export function TodayTab() {
   const [schedule, setSchedule]   = useState<ScheduleBlock[]>([]);
   const [habitDefs, setHabitDefs] = useState<HabitDef[]>([]);
 
+  // What last night's log named as today's most important task. Written once,
+  // then never seen again — so it gets a line right under the clock.
+  const [focus, setFocus]         = useState("");
+
   const [editSched, setEditSched] = useState(false);
   const [newBlock, setNewBlock] = useState({ label: "", start: "", end: "", icon: DEFAULT_ICON_KEY });
   const [newHabit, setNewHabit] = useState("");
   const [iconPickerFor, setIconPickerFor] = useState<string | null>(null);
+  // Pending debounced label writes, keyed by block id. Flushed on blur and on
+  // unmount so leaving edit mode mid-keystroke never drops the last change.
+  const labelTimers = useRef<Record<string, { timer: ReturnType<typeof setTimeout>; send: () => void }>>({});
+  const flushLabel = (id: string) => {
+    const pending = labelTimers.current[id];
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    delete labelTimers.current[id];
+    pending.send();
+  };
+  useEffect(() => {
+    const timers = labelTimers.current;
+    return () => {
+      for (const id of Object.keys(timers)) {
+        clearTimeout(timers[id].timer);
+        timers[id].send();
+      }
+    };
+  }, []);
 
   // Tick clock every second
   useEffect(() => { const id = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(id); }, []);
 
-  // Load all data from server on mount
+  // Load all data from server on mount (and again if the zone resolves to a
+  // different calendar day than the device's).
   useEffect(() => {
-    const dt = today();
+    const dt = todayIn(tz);
     api(`/api/dashboard/habits?date=${dt}`).then(data => {
       if (data && !data.error) setHabits(data);
     });
@@ -57,17 +81,24 @@ export function TodayTab() {
     api("/api/dashboard/habit-defs").then(rows => {
       if (Array.isArray(rows)) setHabitDefs(rows);
     });
-  }, []);
+    api(`/api/dashboard/log?date=${shiftDate(dt, -1)}`).then(row => {
+      if (row && !row.error) setFocus(String(row.tomorrow_task ?? "").trim());
+    });
+  }, [tz]);
 
+  // Send only the column that changed. Spreading the whole loaded row used to
+  // (a) ship a stale `false` for anything the bot marked since mount, undoing
+  // it, and (b) carry the row's own `date` field, which overrode `date:` and
+  // wrote to yesterday whenever the tab had been open past midnight.
   const toggleBuiltin = async (key: string) => {
-    const next = { ...habits, [key]: !habits[key as keyof HabitsRow] };
-    setHabits(next);
-    await jPost("/api/dashboard/habits", { date: today(), ...next });
+    const value = !habits[key as keyof HabitsRow];
+    setHabits(p => ({ ...p, [key]: value }));
+    await jPost("/api/dashboard/habits", { date: todayIn(tz), [key]: value });
   };
   const toggleCustom = async (id: string) => {
     const newVal = !customDay[id];
-    setCustomDay({ ...customDay, [id]: newVal });
-    await jPost("/api/dashboard/habit-custom", { date: today(), habit_id: id, done: newVal });
+    setCustomDay(p => ({ ...p, [id]: newVal }));
+    await jPost("/api/dashboard/habit-custom", { date: todayIn(tz), habit_id: id, done: newVal });
   };
 
   // Clock + "what's now" are computed in the configured timezone.
@@ -97,14 +128,23 @@ export function TodayTab() {
     });
   };
   const updateBlock = (id: string, patch: Partial<ScheduleBlock>) => {
-    setSchedule(schedule.map(b => b.id === id ? { ...b, ...patch } : b));
-    jPatch("/api/dashboard/schedule", {
+    setSchedule(prev => prev.map(b => b.id === id ? { ...b, ...patch } : b));
+    const send = () => jPatch("/api/dashboard/schedule", {
       id,
       start_min: patch.start,
       end_min: patch.end,
       label: patch.label,
       icon: patch.icon,
     });
+    // Typing a label used to fire a PATCH per character, with no ordering
+    // guarantee between responses. Coalesce per block; icons still save at once.
+    if (patch.label === undefined) { void send(); return; }
+    const timers = labelTimers.current;
+    if (timers[id]) clearTimeout(timers[id].timer);
+    timers[id] = {
+      timer: setTimeout(() => { delete timers[id]; void send(); }, 500),
+      send,
+    };
   };
   const removeBlock = async (id: string) => {
     setSchedule(schedule.filter(b => b.id !== id));
@@ -136,8 +176,9 @@ export function TodayTab() {
     if (!label.trim()) return;
     jPatch("/api/dashboard/habit-defs", { id, label: label.trim() });
   };
-  const removeHabit = async (id: string) => {
-    setHabitDefs(habitDefs.filter(h => h.id !== id));
+  const removeHabit = async (id: string, label: string) => {
+    if (!confirm(d.habitRemoveConfirm.replace("{name}", label))) return;
+    setHabitDefs(prev => prev.filter(h => h.id !== id));
     await jDel("/api/dashboard/habit-defs", { id });
   };
 
@@ -159,7 +200,7 @@ export function TodayTab() {
           </span>
         </div>
         <div className="text-xs text-[var(--muted)] mt-2 capitalize">
-          {dateLabel(time, tz, "ru-RU", { weekday: "long", month: "long", day: "numeric" })}
+          {dateLabel(time, tz, localeOf(lang), { weekday: "long", month: "long", day: "numeric" })}
         </div>
 
         {current ? (
@@ -188,6 +229,19 @@ export function TodayTab() {
           </div>
         )}
       </Card>
+
+      {/* Yesterday's answer to "most important task for tomorrow" — that's today */}
+      {focus && (
+        <Card className="p-4 border-[var(--foreground)]/25">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Target className="h-3.5 w-3.5 shrink-0" />
+            <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--muted)] font-medium">
+              {t.dash.log.focusTitle}
+            </div>
+          </div>
+          <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap">{focus}</div>
+        </Card>
+      )}
 
       {/* Schedule */}
       <section>
@@ -283,6 +337,7 @@ export function TodayTab() {
                       <Input
                         value={b.label}
                         onChange={e => updateBlock(b.id, { label: e.target.value })}
+                        onBlur={() => flushLabel(b.id)}
                         className="h-8 text-xs"
                       />
                       <IconButton
@@ -427,9 +482,10 @@ export function TodayTab() {
                     <IconButton
                       size="sm"
                       variant="ghost"
-                      onClick={() => removeHabit(hab.id)}
+                      onClick={() => removeHabit(hab.id, hab.label)}
                       className="opacity-40 hover:opacity-100 hover:text-red-500"
-                      aria-label="remove habit"
+                      aria-label={d.habitRemove}
+                      title={d.habitRemove}
                     >
                       <X className="h-3.5 w-3.5" />
                     </IconButton>
@@ -471,7 +527,9 @@ export function TodayTab() {
 
 function IconPicker({ value, onSelect }: { value: string; onSelect: (ic: string) => void }) {
   return (
-    <div className="grid grid-cols-8 gap-1.5">
+    // 8 columns squeezed each icon to ~29px on a 360px phone — under the 44px
+    // touch guideline and easy to mis-tap. 6 columns clears 40px.
+    <div className="grid grid-cols-6 gap-2 sm:grid-cols-8 sm:gap-1.5">
       {SCHEDULE_ICON_KEYS.map(key => {
         const selected = value === key;
         return (

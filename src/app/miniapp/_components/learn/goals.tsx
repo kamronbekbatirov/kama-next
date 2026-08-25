@@ -38,12 +38,21 @@ export function GoalsPane() {
   return (
     <>
       <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <div className="text-[10px] uppercase tracking-widest text-[var(--muted)]">
+        {/* The subtitle is a long uppercase line — it must wrap on its own and
+            never squeeze the button, or the label breaks across two lines
+            inside a 28px-tall pill. Button first in the DOM order? No: keep
+            reading order, just pin it with shrink-0 + nowrap. */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="text-[10px] uppercase tracking-widest leading-[1.6] text-[var(--muted)] min-w-0 flex-1 pt-1">
             {l.goals.subtitle}
           </div>
-          <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-            <Plus className="h-3.5 w-3.5" />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setCreating(true)}
+            className="h-8 shrink-0 whitespace-nowrap gap-1.5"
+          >
+            <Plus className="h-3.5 w-3.5 shrink-0" />
             {l.goals.new}
           </Button>
         </div>

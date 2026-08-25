@@ -1,14 +1,11 @@
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 import {
   pinIsSet, setPin, verifyPin, isValidPin,
   setUnlock, clearUnlock, isUnlocked, disableLock,
   unlockRateLimited, noteFailedAttempt, resetAttempts,
 } from "@/lib/note-lock";
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
+const auth = requireOwner;
 
 export async function GET() {
   try {
@@ -66,7 +63,10 @@ export async function POST(req: Request) {
     }
 
     return Response.json({ ok: false, error: "bad_request" }, { status: 400 });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("notes/lock:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }

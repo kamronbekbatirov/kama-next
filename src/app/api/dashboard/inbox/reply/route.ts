@@ -1,13 +1,10 @@
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 import { query } from "@/lib/db";
 import { sendAndStore, mailSenders } from "@/lib/mail";
 
 export const dynamic = "force-dynamic";
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
+const auth = requireOwner;
 
 /** GET — the verified from-addresses the composer can choose from. */
 export async function GET() {

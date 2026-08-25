@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, FileText, Plus, Trash2, Save, Check, Loader2, Calendar, ChevronRight, Moon, Lock, LockOpen, ShieldCheck } from "lucide-react";
+import {
+  ArrowLeft, FileText, Plus, Minus, Trash2, Save, Check, Loader2, Calendar, ChevronLeft,
+  ChevronRight, Moon, Lock, LockOpen, ShieldCheck, Target, ListPlus, Dumbbell, Timer,
+  Footprints, Download, type LucideIcon,
+} from "lucide-react";
 import { NoteEditor } from "./note-editor";
 import { PinModal } from "./pin-modal";
 import { Card } from "@/components/ui/card";
@@ -10,11 +14,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useLang } from "@/components/providers";
 import {
-  api, jPost, jPatch, jDel, today, getLast, useHashView,
+  api, jPost, jPatch, jDel, todayIn, getLast, shiftDate, useHashView, localeOf, saveFile,
   PRAYER_IDS,
   type DailyLog, type HabitsRow, type Note,
 } from "./_shared";
 import { SectionHeader, EmptyState, SoftCard, IconButton, StatBlock } from "./dashboard-ui";
+import { useTimezone } from "./timezone";
 import { JobsTab } from "./jobs-tab";
 
 export function JournalTab() {
@@ -42,62 +47,165 @@ export function JournalTab() {
 }
 
 // ─── LOG ─────────────────────────────────────────────────────────────────────
+// Everything the form edits. Kept as one flat list so a payload can be
+// snapshot-compared (JSON) to decide whether an autosave is even needed.
+const LOG_TEXT_FIELDS = ["what_worked", "tomorrow_task", "notes", "visa_progress"] as const;
+const LOG_NUM_FIELDS  = ["workout_pushups", "workout_plank", "workout_walk"] as const;
+type LogDraft = Record<(typeof LOG_TEXT_FIELDS)[number], string> &
+                Record<(typeof LOG_NUM_FIELDS)[number], number>;
+
+const EMPTY_DRAFT: LogDraft = {
+  what_worked: "", tomorrow_task: "", notes: "", visa_progress: "",
+  workout_pushups: 0, workout_plank: 0, workout_walk: 0,
+};
+
+function toDraft(row: Partial<DailyLog> | null | undefined): LogDraft {
+  const out = { ...EMPTY_DRAFT };
+  if (!row) return out;
+  for (const f of LOG_TEXT_FIELDS) out[f] = (row[f] as string | null) ?? "";
+  for (const f of LOG_NUM_FIELDS)  out[f] = Number(row[f] ?? 0) || 0;
+  return out;
+}
+
+function isBlank(dr: LogDraft): boolean {
+  return LOG_TEXT_FIELDS.every(f => !dr[f].trim()) && LOG_NUM_FIELDS.every(f => !dr[f]);
+}
+
 function LogContent() {
   const { t } = useLang();
   const d = t.dash.log;
-  const [log, setLog]       = useState<Partial<DailyLog>>({});
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved]   = useState(false);
-  const [date, setDate]     = useState(today());
+  const { tz } = useTimezone();
+  const [date, setDate]   = useState(() => todayIn());
+  const [draft, setDraft] = useState<LogDraft>(EMPTY_DRAFT);
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "unsaved">("idle");
+  // Yesterday's answer to "most important task for tomorrow" — i.e. today's brief.
+  const [carry, setCarry] = useState<{ date: string; text: string } | null>(null);
 
-  const load = useCallback(async (dt: string) => {
-    const data = await api(`/api/dashboard/log?date=${dt}`);
-    setLog(data && !data.error ? (data ?? {}) : {});
+  // Refs so the debounced save always writes the latest values to the date they
+  // were typed under, even if the user has already flipped to another day.
+  const draftRef = useRef<LogDraft>(EMPTY_DRAFT);
+  const dateRef  = useRef(date);
+  const savedRef = useRef(JSON.stringify(EMPTY_DRAFT));
+  const busyRef  = useRef(false);
+  const againRef = useRef(false);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
+
+  const flush = useCallback(async () => {
+    const dt   = dateRef.current;
+    const snap = JSON.stringify(draftRef.current);
+    if (snap === savedRef.current) return;                       // nothing changed
+    if (isBlank(draftRef.current) && savedRef.current === JSON.stringify(EMPTY_DRAFT)) {
+      return;                                                    // never create an empty row
+    }
+    if (busyRef.current) { againRef.current = true; return; }    // coalesce
+    busyRef.current = true;
+    setStatus("saving");
+    try {
+      await jPost("/api/dashboard/log", { date: dt, ...draftRef.current });
+      savedRef.current = snap;
+      setStatus("saved");
+    } catch {
+      setStatus("unsaved");
+    } finally {
+      busyRef.current = false;
+      if (againRef.current) { againRef.current = false; void flush(); }
+    }
   }, []);
-  useEffect(() => { load(date); }, [date, load]);
 
-  const set = (key: keyof DailyLog, v: string|number) => {
-    setLog(p => ({ ...p, [key]: v }));
-    setSaved(false);
+  // Load the picked day (and the day before it, for the carry-over card).
+  useEffect(() => {
+    let cancelled = false;
+    dateRef.current = date;
+    setStatus("idle");
+    api(`/api/dashboard/log?date=${date}`).then(row => {
+      if (cancelled) return;
+      const next = toDraft(row && !row.error ? row : null);
+      setDraft(next);
+      draftRef.current = next;
+      savedRef.current = JSON.stringify(next);
+    });
+    const prev = shiftDate(date, -1);
+    api(`/api/dashboard/log?date=${prev}`).then(row => {
+      if (cancelled) return;
+      const text = row && !row.error ? String(row.tomorrow_task ?? "").trim() : "";
+      setCarry({ date: prev, text });
+    });
+    return () => { cancelled = true; };
+  }, [date]);
+
+  // Debounced autosave — typing a reflection and tapping away no longer loses it.
+  useEffect(() => {
+    if (JSON.stringify(draft) === savedRef.current) return;
+    setStatus("unsaved");
+    const id = setTimeout(() => { void flush(); }, 900);
+    return () => clearTimeout(id);
+  }, [draft, flush]);
+
+  // Last-chance saves: closing the app, or leaving this sub-tab.
+  useEffect(() => {
+    const beacon = () => {
+      const snap = JSON.stringify(draftRef.current);
+      if (snap === savedRef.current) return;
+      if (isBlank(draftRef.current) && savedRef.current === JSON.stringify(EMPTY_DRAFT)) return;
+      fetch("/api/dashboard/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: dateRef.current, ...draftRef.current }),
+        keepalive: true,
+      });
+      savedRef.current = snap;
+    };
+    window.addEventListener("beforeunload", beacon);
+    return () => { window.removeEventListener("beforeunload", beacon); beacon(); };
+  }, []);
+
+  const set = <K extends keyof LogDraft>(key: K, v: LogDraft[K]) =>
+    setDraft(p => ({ ...p, [key]: v }));
+
+  // Persist the day being left before switching — otherwise a pending debounce
+  // would land on the newly picked date.
+  const goto = async (next: string) => {
+    if (next === dateRef.current) return;
+    await flush();
+    setDate(next);
   };
-  const save = async () => {
-    setSaving(true);
-    await jPost("/api/dashboard/log", { date, ...log });
-    setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
-  };
+
+  const td = todayIn(tz);
+  const isToday = date === td;
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className="p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--muted)] font-medium">
-            <Calendar className="inline h-3 w-3 mr-1.5" />
-            {d.dateLabel}
-          </div>
-          <Input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="h-8 text-xs tabular-nums w-auto"
-          />
-        </div>
-      </Card>
+      <DateNav date={date} today={td} onPick={goto} labels={d} />
+
+      <CarryCard
+        carry={carry}
+        onOpenPrev={() => carry && void goto(carry.date)}
+        labels={d}
+      />
 
       <section>
-        <SectionHeader eyebrow={d.reflection} />
+        <SectionHeader
+          eyebrow={d.reflection}
+          trailing={<SaveStatus status={status} labels={d} onClick={() => void flush()} />}
+        />
         <Card className="p-4 space-y-4">
           {[
-            { key: "what_worked"   as const, q: d.q1 },
-            { key: "tomorrow_task" as const, q: d.q2 },
-            { key: "notes"         as const, q: d.notes },
-          ].map(({ key, q }) => (
+            { key: "what_worked"   as const, q: d.q1, hint: d.q1Hint,  rows: 3 },
+            { key: "tomorrow_task" as const, q: d.q2, hint: d.q2Hint,  rows: 2 },
+            { key: "notes"         as const, q: d.notes, hint: undefined, rows: 2 },
+          ].map(({ key, q, hint, rows }) => (
             <div key={key}>
-              <label className="text-[11px] text-[var(--muted)] font-medium block mb-1.5">{q}</label>
+              <label className="text-xs font-semibold block mb-0.5">{q}</label>
+              {hint && (
+                <div className="text-[10px] text-[var(--muted)] mb-1.5 leading-snug">{hint}</div>
+              )}
               <Textarea
-                value={log[key] ?? ""}
+                value={draft[key]}
                 onChange={e => set(key, e.target.value)}
+                onBlur={() => void flush()}
                 placeholder={key === "notes" ? d.notesPh : d.writePh}
-                rows={2}
+                rows={rows}
+                className={key === "tomorrow_task" ? "border-[var(--foreground)]/25" : undefined}
               />
             </div>
           ))}
@@ -106,41 +214,344 @@ function LogContent() {
 
       <section>
         <SectionHeader eyebrow={d.workout} />
-        <Card className="p-4">
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { key: "workout_pushups" as const, label: d.pushups },
-              { key: "workout_plank"   as const, label: d.plank },
-              { key: "workout_walk"    as const, label: d.walk },
-            ].map(({ key, label }) => (
-              <div key={key}>
-                <label className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium block mb-1.5">{label}</label>
-                <input
-                  type="number"
-                  value={log[key] ?? ""}
-                  onChange={e => set(key, parseInt(e.target.value) || 0)}
-                  className="w-full bg-transparent text-2xl font-semibold tabular-nums outline-none border-b border-[var(--card-border)] pb-1 focus:border-[var(--foreground)] transition-colors"
-                />
-              </div>
-            ))}
-          </div>
+        <Card className="p-2">
+          {([
+            { key: "workout_pushups" as const, label: d.pushups, icon: Dumbbell,   step: 5,  unit: "" },
+            { key: "workout_plank"   as const, label: d.plank,   icon: Timer,      step: 10, unit: "" },
+            { key: "workout_walk"    as const, label: d.walk,    icon: Footprints, step: 5,  unit: "" },
+          ]).map((row, idx) => (
+            <CounterRow
+              key={row.key}
+              icon={row.icon}
+              label={row.label}
+              value={draft[row.key]}
+              step={row.step}
+              divider={idx > 0}
+              onChange={v => set(row.key, v)}
+              onCommit={() => void flush()}
+            />
+          ))}
         </Card>
       </section>
 
       <button
-        onClick={save}
-        disabled={saving}
+        onClick={() => void flush()}
+        disabled={status === "saving"}
         className={[
           "w-full h-11 rounded-2xl text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50",
-          saved
+          status === "saved"
             ? "bg-emerald-500 text-white"
             : "bg-[var(--foreground)] text-[var(--background)] hover:opacity-85",
         ].join(" ")}
       >
-        {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-        {saving ? d.saving : saved ? d.saved : d.save}
+        {status === "saved" ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+        {status === "saving" ? d.saving : status === "saved" ? d.saved : d.save}
       </button>
+
+      <ExportLogs today={td} labels={d} />
+
+      {!isToday && (
+        <button
+          onClick={() => void goto(td)}
+          className="self-center text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--foreground)] underline underline-offset-4 transition-colors cursor-pointer"
+        >
+          {d.backToToday}
+        </button>
+      )}
     </div>
+  );
+}
+
+type LogLabels = ReturnType<typeof useLang>["t"]["dash"]["log"];
+
+const EXPORT_RANGES = [7, 30, 90, 365] as const;
+
+/**
+ * Download the journal for a date range as Markdown.
+ *
+ * Inside Telegram the file has to come from an absolute HTTPS URL that the
+ * native downloader can fetch without the session cookie, so the server mints a
+ * short-lived signed link first and `saveFile` hands it to `downloadFile`
+ * (Bot API 8.0+). In a normal browser it's just a download link.
+ */
+function ExportLogs({ today: td, labels }: { today: string; labels: LogLabels }) {
+  const { lang } = useLang();
+  const [days, setDays] = useState<number>(30);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const from = shiftDate(td, -(days - 1));
+
+  const download = async () => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const q = new URLSearchParams({ from, to: td, lang, link: "1" });
+      const res = await api(`/api/dashboard/log/export?${q}`);
+      if (res?.url) saveFile(res.url, res.filename ?? `journal-${from}_${td}.md`);
+      else setFailed(true);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section>
+      <SectionHeader eyebrow={labels.exportTitle} />
+      <Card className="p-3 flex flex-col gap-2.5">
+        <div className="flex items-center gap-1 flex-wrap">
+          {EXPORT_RANGES.map(n => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setDays(n)}
+              aria-pressed={days === n}
+              className={[
+                "h-8 px-3 rounded-full text-[11px] font-semibold tabular-nums transition-all cursor-pointer",
+                days === n
+                  ? "bg-[var(--foreground)] text-[var(--background)]"
+                  : "border border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)]",
+              ].join(" ")}
+            >
+              {n === 365 ? labels.exportYear : `${n}${labels.exportDays}`}
+            </button>
+          ))}
+        </div>
+
+        <div className="text-[10px] text-[var(--muted)] tabular-nums">{from} — {td}</div>
+
+        <button
+          onClick={() => void download()}
+          disabled={busy}
+          className="w-full h-10 rounded-xl bg-[var(--foreground)] text-[var(--background)] text-xs font-semibold hover:opacity-85 transition-opacity flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {labels.exportDownload}
+        </button>
+
+        {failed && <div className="text-[11px] text-red-500">{labels.exportFailed}</div>}
+      </Card>
+    </section>
+  );
+}
+
+/** Day picker: arrows step ±1 day, the date itself opens the calendar. */
+function DateNav({
+  date, today: td, onPick, labels,
+}: {
+  date: string;
+  today: string;
+  onPick: (d: string) => void;
+  labels: LogLabels;
+}) {
+  const { lang } = useLang();
+  const locale = localeOf(lang);
+  const atToday = date >= td;
+  const human = new Date(`${date}T00:00:00`).toLocaleDateString(locale, {
+    weekday: "long", day: "numeric", month: "long",
+  });
+  const rel = date === td ? labels.today
+            : date === shiftDate(td, -1) ? labels.yesterday
+            : null;
+
+  return (
+    <Card className="p-2">
+      <div className="flex items-center gap-1">
+        <IconButton
+          size="lg"
+          variant="ghost"
+          onClick={() => onPick(shiftDate(date, -1))}
+          aria-label={labels.prevDay}
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </IconButton>
+
+        {/* The calendar used to sit in its own button wedged between the date
+            and the "next day" arrow, and its transparent <input type="date">
+            overlay swallowed taps meant for that arrow — so going forward
+            opened the picker instead. Now the date itself is the picker and the
+            arrows own the edges, with nothing overlapping them. */}
+        <label className="relative flex-1 min-w-0 text-center py-1.5 rounded-xl hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
+          <div className="text-sm font-semibold capitalize truncate px-1">{human}</div>
+          <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] mt-0.5 inline-flex items-center gap-1">
+            <Calendar className="h-3 w-3" />
+            {rel ?? date}
+          </div>
+          <input
+            type="date"
+            value={date}
+            max={td}
+            onChange={e => e.target.value && onPick(e.target.value)}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            aria-label={labels.dateLabel}
+          />
+        </label>
+
+        <IconButton
+          size="lg"
+          variant="ghost"
+          onClick={() => onPick(shiftDate(date, 1))}
+          disabled={atToday}
+          className="disabled:opacity-25 disabled:cursor-not-allowed"
+          aria-label={labels.nextDay}
+        >
+          <ChevronRight className="h-5 w-5" />
+        </IconButton>
+      </div>
+    </Card>
+  );
+}
+
+/** Yesterday's "most important task for tomorrow", surfaced on the day it's for.
+ *  Writing the intention and never seeing it again is how the habit dies. */
+function CarryCard({
+  carry, onOpenPrev, labels,
+}: {
+  carry: { date: string; text: string } | null;
+  onOpenPrev: () => void;
+  labels: LogLabels;
+}) {
+  const [added, setAdded] = useState(false);
+  const [busy, setBusy]   = useState(false);
+  useEffect(() => { setAdded(false); }, [carry?.date, carry?.text]);
+
+  if (!carry) return null;
+
+  if (!carry.text) {
+    return (
+      <div className="flex items-center gap-2 px-1 text-[11px] text-[var(--muted)]">
+        <Target className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0">{labels.focusEmpty}</span>
+      </div>
+    );
+  }
+
+  const toTask = async () => {
+    setBusy(true);
+    const res = await jPost("/api/dashboard/todos", {
+      text: carry.text, category: "general", priority: "high", status: "todo",
+    });
+    setBusy(false);
+    if (res?.id) setAdded(true);
+  };
+
+  return (
+    <Card className="p-4 border-[var(--foreground)]/25">
+      <div className="flex items-center gap-2 mb-2">
+        <Target className="h-3.5 w-3.5 shrink-0 text-[var(--foreground)]" />
+        <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--muted)] font-medium">
+          {labels.focusTitle}
+        </div>
+      </div>
+      <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap">{carry.text}</div>
+      <div className="flex items-center gap-2 mt-3 flex-wrap">
+        <button
+          onClick={() => void toTask()}
+          disabled={busy || added}
+          className={[
+            "inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold transition-all cursor-pointer",
+            "disabled:cursor-default",
+            added
+              ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/25"
+              : "bg-[var(--foreground)] text-[var(--background)] hover:opacity-85 disabled:opacity-50",
+          ].join(" ")}
+        >
+          {added ? <Check className="h-3.5 w-3.5" /> : <ListPlus className="h-3.5 w-3.5" />}
+          {added ? labels.focusAdded : labels.focusToTask}
+        </button>
+        <button
+          onClick={onOpenPrev}
+          className="text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--foreground)] underline underline-offset-4 transition-colors cursor-pointer"
+        >
+          {labels.openPrev}
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+/** −/+ stepper with a still-typeable number. Steppers beat a numeric keyboard
+ *  on a phone; the raw input stays for "I did 47". */
+function CounterRow({
+  icon: Icon, label, value, step, divider, onChange, onCommit,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  step: number;
+  divider: boolean;
+  onChange: (v: number) => void;
+  onCommit: () => void;
+}) {
+  const bump = (delta: number) => {
+    onChange(Math.max(0, value + delta));
+    onCommit();
+  };
+  return (
+    <div className={[
+      "flex items-center gap-2 px-2 py-2.5",
+      divider ? "border-t border-[var(--card-border)]" : "",
+    ].join(" ")}>
+      <Icon className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+      <span className="text-xs flex-1 min-w-0 truncate">{label}</span>
+      <IconButton
+        size="sm"
+        variant="outline"
+        onClick={() => bump(-step)}
+        disabled={value <= 0}
+        className="disabled:opacity-30"
+        aria-label={`${label} −${step}`}
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </IconButton>
+      <input
+        type="number"
+        inputMode="numeric"
+        value={value === 0 ? "" : value}
+        placeholder="0"
+        onChange={e => onChange(Math.max(0, parseInt(e.target.value, 10) || 0))}
+        onBlur={onCommit}
+        className="w-14 shrink-0 bg-transparent text-center text-lg font-semibold tabular-nums outline-none border-b border-[var(--card-border)] focus:border-[var(--foreground)] transition-colors"
+        aria-label={label}
+      />
+      <IconButton
+        size="sm"
+        variant="outline"
+        onClick={() => bump(step)}
+        aria-label={`${label} +${step}`}
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </IconButton>
+    </div>
+  );
+}
+
+function SaveStatus({
+  status, labels, onClick,
+}: {
+  status: "idle" | "saving" | "saved" | "unsaved";
+  labels: LogLabels;
+  onClick: () => void;
+}) {
+  if (status === "idle") return null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "inline-flex items-center gap-1.5 text-[11px] font-medium cursor-pointer",
+        status === "saved" ? "text-emerald-500"
+          : status === "saving" ? "text-[var(--muted)]"
+          : "text-yellow-500",
+      ].join(" ")}
+    >
+      {status === "saving" ? <Loader2 className="h-3 w-3 animate-spin" />
+        : status === "saved" ? <Check className="h-3 w-3" />
+        : <span className="h-1.5 w-1.5 rounded-full bg-yellow-500" />}
+      {status === "saving" ? labels.saving : status === "saved" ? labels.saved : labels.unsaved}
+    </button>
   );
 }
 
@@ -162,7 +573,8 @@ function plainText(content: string): string {
 
 // ─── NOTES ───────────────────────────────────────────────────────────────────
 function NotesContent() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const locale = localeOf(lang);
   const d = t.dash.notes;
   const [notes, setNotes]     = useState<Note[]>([]);
   const [selected, setSelected] = useState<Note|null>(null);
@@ -473,7 +885,7 @@ function NotesContent() {
                   </div>
                 )}
                 <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
-                  {new Date(n.updated_at).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
+                  {new Date(n.updated_at).toLocaleDateString(locale, { day: "numeric", month: "short" })}
                 </div>
               </button>
             );
@@ -495,17 +907,26 @@ interface HistoryData {
   customCompletions: CustomCompletion[];
 }
 
+const HISTORY_PERIODS = [7, 14, 30, 90] as const;
+
 function HistoryContent() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const locale = localeOf(lang);
   const d = t.dash;
   const h = d.history;
+  const { tz } = useTimezone();
+  const [days, setDays] = useState<number>(14);
   const [data, setData] = useState<HistoryData | null>(null);
+  const td = todayIn(tz);
 
+  // Send the window's end explicitly: the server's CURRENT_DATE is UTC and
+  // would be a day behind the grid we draw here.
   useEffect(() => {
-    api("/api/dashboard/history?days=14").then(r => { if (!r.error) setData(r); });
-  }, []);
+    setData(null);
+    api(`/api/dashboard/history?days=${days}&end=${td}`).then(r => { if (!r.error) setData(r); });
+  }, [td, days]);
 
-  const days = getLast(14);
+  const dayList = getLast(days, tz);
   const habitsMap = new Map<string, HabitsRow>(
     (data?.habits ?? []).map(h => [String(h.date).slice(0, 10), h]),
   );
@@ -522,8 +943,8 @@ function HistoryContent() {
 
   const computeStreak = (predicate: (date: string) => boolean) => {
     let streak = 0;
-    for (let i = days.length - 1; i >= 0; i--) {
-      if (predicate(days[i])) streak++;
+    for (let i = dayList.length - 1; i >= 0; i--) {
+      if (predicate(dayList[i])) streak++;
       else break;
     }
     return streak;
@@ -541,28 +962,39 @@ function HistoryContent() {
 
   const prayerStreak = data ? computeStreak(allPrayersDone) : 0;
   const habitStreak  = data && defs.length > 0 ? computeStreak(allHabitsDone) : 0;
-  const logsCount    = days.filter(dt => logsSet.has(dt)).length;
+  const logsCount    = dayList.filter(dt => logsSet.has(dt)).length;
 
-  const totalHabits  = defs.length;
-  const totalPrayers = 5;
+  // Cells keep a fixed width so a 90-day window scrolls sideways instead of
+  // squeezing every square into an unreadable sliver.
+  const cell = days > 31 ? 10 : 14;
 
   const Heatmap = (
     <div className="overflow-x-auto -mx-2 px-2">
-      <table className="w-full" style={{ tableLayout: "fixed" }}>
+      <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
         <thead>
           <tr>
-            <td className="w-24" />
-            {days.map(dt => {
-              const dayNum = new Date(dt).getDate();
-              const isToday = dt === today();
+            <td className="sticky left-0 z-10 bg-[var(--card)] pr-2" style={{ minWidth: 84 }} />
+            {dayList.map(dt => {
+              // Parse at local midnight — `new Date("YYYY-MM-DD")` is UTC and
+              // would render the previous day west of Greenwich.
+              const local = new Date(`${dt}T00:00:00`);
+              const isToday = dt === td;
+              const first = local.getDate() === 1;
               return (
-                <td key={dt} className="text-center pb-2">
-                  <div className={[
-                    "text-[10px] tabular-nums font-medium",
-                    isToday ? "text-[var(--foreground)]" : "text-[var(--muted)]",
-                  ].join(" ")}>
-                    {dayNum}
+                <td key={dt} className="text-center pb-2" style={{ width: cell + 6 }}>
+                  <div className="text-[8px] uppercase text-[var(--muted)] leading-none mb-0.5">
+                    {days > 31
+                      ? (first ? local.toLocaleDateString(locale, { month: "short" }) : "")
+                      : local.toLocaleDateString(locale, { weekday: "narrow" })}
                   </div>
+                  {days <= 31 && (
+                    <div className={[
+                      "text-[10px] tabular-nums font-medium",
+                      isToday ? "text-[var(--foreground)] font-bold" : "text-[var(--muted)]",
+                    ].join(" ")}>
+                      {local.getDate()}
+                    </div>
+                  )}
                 </td>
               );
             })}
@@ -571,17 +1003,18 @@ function HistoryContent() {
         <tbody>
           {PRAYER_IDS.map(k => (
             <tr key={`p_${k}`}>
-              <td className="text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 py-1 truncate">
+              <td className="sticky left-0 z-10 bg-[var(--card)] text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 py-1 truncate">
                 {d.today.prayerNames[k]}
               </td>
-              {days.map(dt => {
+              {dayList.map(dt => {
                 const done = !!(habitsMap.get(dt) as unknown as Record<string, boolean> | undefined)?.[k];
                 return (
                   <td key={dt} className="text-center py-0.5">
-                    <div className={[
-                      "w-3 h-3 mx-auto rounded-[3px] transition-all",
-                      done ? "bg-[var(--foreground)]" : "bg-[var(--muted-bg)]",
-                    ].join(" ")} />
+                    <div
+                      className={["mx-auto rounded-[3px] transition-all", done ? "bg-[var(--foreground)]" : "bg-[var(--muted-bg)]"].join(" ")}
+                      style={{ width: cell, height: cell }}
+                      title={`${d.today.prayerNames[k]} · ${dt}`}
+                    />
                   </td>
                 );
               })}
@@ -590,34 +1023,39 @@ function HistoryContent() {
           {defs.map((def, idx) => (
             <tr key={`h_${def.id}`}>
               <td className={[
-                "text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 py-1 truncate",
+                "sticky left-0 z-10 bg-[var(--card)] text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 py-1 truncate",
                 idx === 0 ? "pt-3" : "",
               ].join(" ")}>{def.label || def.id}</td>
-              {days.map(dt => {
+              {dayList.map(dt => {
                 const done = isDone(def, dt);
                 return (
                   <td key={dt} className="text-center py-0.5">
-                    <div className={[
-                      "w-3 h-3 mx-auto rounded-[3px] transition-all",
-                      done ? "bg-[var(--foreground)]" : "bg-[var(--muted-bg)]",
-                    ].join(" ")} />
+                    <div
+                      className={["mx-auto rounded-[3px] transition-all", done ? "bg-[var(--foreground)]" : "bg-[var(--muted-bg)]"].join(" ")}
+                      style={{ width: cell, height: cell }}
+                      title={`${def.label || def.id} · ${dt}`}
+                    />
                   </td>
                 );
               })}
             </tr>
           ))}
           <tr>
-            <td className="text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 pt-3">
+            <td className="sticky left-0 z-10 bg-[var(--card)] text-[10px] uppercase tracking-wide text-[var(--muted)] pr-2 pt-3">
               {h.log}
             </td>
-            {days.map(dt => (
+            {dayList.map(dt => (
               <td key={dt} className="text-center pt-2">
-                <div className={[
-                  "w-3 h-3 mx-auto rounded-[3px] border transition-all",
-                  logsSet.has(dt)
-                    ? "bg-[var(--foreground)] border-[var(--foreground)]"
-                    : "border-[var(--card-border)]",
-                ].join(" ")} />
+                <div
+                  className={[
+                    "mx-auto rounded-[3px] border transition-all",
+                    logsSet.has(dt)
+                      ? "bg-[var(--foreground)] border-[var(--foreground)]"
+                      : "border-[var(--card-border)]",
+                  ].join(" ")}
+                  style={{ width: cell, height: cell }}
+                  title={`${h.log} · ${dt}`}
+                />
               </td>
             ))}
           </tr>
@@ -640,75 +1078,37 @@ function HistoryContent() {
             label={h.habitStreak}
             hint={habitStreak === 1 ? h.day : h.days}
           />
-          <StatBlock value={`${logsCount}/14`} label={h.logsLabel} />
+          <StatBlock value={`${logsCount}/${days}`} label={h.logsLabel} />
         </div>
       </Card>
 
       <Card className="p-4">
-        <SectionHeader eyebrow={h.last14} className="mb-3" />
-        {!data ? (
-          <HeatmapSkeleton />
-        ) : (
-          Heatmap
-        )}
-      </Card>
-
-      <section>
-        <SectionHeader eyebrow={h.last7} />
-        <Card className="p-2">
-          <div className="flex flex-col">
-            {days.slice(-7).reverse().map((dt, idx) => {
-              const habitsRow = habitsMap.get(dt);
-              const pDone = habitsRow
-                ? PRAYER_IDS.filter(k => (habitsRow as unknown as Record<string, boolean>)[k]).length
-                : 0;
-              const hDone = defs.filter(def => isDone(def, dt)).length;
-              const hasLog = logsSet.has(dt);
-              const dateLabel = new Date(dt).toLocaleDateString("ru-RU", {
-                weekday: "short", day: "numeric", month: "short",
-              });
-              const isToday = dt === today();
-              return (
-                <div
-                  key={dt}
+        <SectionHeader
+          eyebrow={h.window}
+          className="mb-3"
+          trailing={
+            <div className="inline-flex items-center gap-1 rounded-full border border-[var(--card-border)] bg-[var(--surface)] p-1">
+              {HISTORY_PERIODS.map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setDays(n)}
+                  aria-pressed={days === n}
                   className={[
-                    "flex items-center gap-3 py-2.5 px-2 rounded-xl",
-                    idx > 0 ? "border-t border-[var(--card-border)]" : "",
-                    isToday ? "bg-[var(--surface-2)]" : "",
+                    "h-6 px-2 rounded-full text-[10px] font-semibold tabular-nums transition-all cursor-pointer",
+                    days === n
+                      ? "bg-[var(--foreground)] text-[var(--background)]"
+                      : "text-[var(--muted)] hover:text-[var(--foreground)]",
                   ].join(" ")}
                 >
-                  <div className="text-xs font-medium w-28 shrink-0">{dateLabel}</div>
-                  <div className="flex gap-4 flex-1 text-xs tabular-nums">
-                    <span className={[
-                      "inline-flex items-center gap-1",
-                      pDone === totalPrayers ? "text-emerald-500"
-                      : pDone === 0 ? "text-[var(--muted)]"
-                      : "text-[var(--foreground)]",
-                    ].join(" ")}>
-                      <Moon className="h-3 w-3" aria-hidden />
-                      <span className="font-semibold">{pDone}</span>
-                      <span className="text-[var(--muted)]">/{totalPrayers}</span>
-                    </span>
-                    {totalHabits > 0 && (
-                      <span className={[
-                        "inline-flex items-center gap-1",
-                        hDone === totalHabits ? "text-emerald-500"
-                        : hDone === 0 ? "text-[var(--muted)]"
-                        : "text-[var(--foreground)]",
-                      ].join(" ")}>
-                        <Check className="h-3 w-3" aria-hidden />
-                        <span className="font-semibold">{hDone}</span>
-                        <span className="text-[var(--muted)]">/{totalHabits}</span>
-                      </span>
-                    )}
-                    {hasLog && <span className="text-[var(--muted)]">○ {h.log}</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      </section>
+                  {n}{h.dayShort}
+                </button>
+              ))}
+            </div>
+          }
+        />
+        {!data ? <HeatmapSkeleton /> : Heatmap}
+      </Card>
     </div>
   );
 }

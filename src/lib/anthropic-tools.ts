@@ -4,10 +4,31 @@ import { getServerStatus } from "@/lib/server-status";
 import { computeNextReview, masteryFromState, statusFromHistory, type RecallScore } from "@/lib/learn/spaced-repetition";
 import { SCHEDULE_ICON_KEYS, resolveIconKey } from "@/lib/schedule-icons";
 import { markdownToHtml } from "@/lib/notes-format";
+import { deleteStoredFile } from "@/lib/uploads";
+import { fetchJournal, renderJournalMarkdown, renderJournalPlain } from "@/lib/journal-export";
+import { tgSendDocument, OWNER_CHAT_ID } from "@/lib/telegram";
+import { sendAndStore } from "@/lib/mail";
+import { syncReceivedEmails } from "@/lib/inbox-sync";
+import {
+  umami, umamiConfigured, periodRange, DEFAULT_WEBSITE_ID,
+  type Metric, type UmamiStats,
+} from "@/lib/umami";
 import { listSessions, revokeSession, revokeAllSessions } from "@/lib/auth";
-import { getTimezone } from "@/lib/timezone";
+import { OWNER_MEMBER_ID } from "@/lib/members";
+import { getTimezone, isoDateIn, isoToday } from "@/lib/timezone";
 
 type Tool = Anthropic.Tool;
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Mirrors the seed in app/api/dashboard/habit-defs/route.ts. */
+const DEFAULT_HABITS = [
+  { id: "water",     label: "Вода",       position: 0 },
+  { id: "walk",      label: "Прогулка",   position: 1 },
+  { id: "workout",   label: "Тренировка", position: 2 },
+  { id: "breakfast", label: "Завтрак",    position: 3 },
+  { id: "quran",     label: "Коран",      position: 4 },
+];
 
 export const TOOL_DEFINITIONS: Tool[] = [
   // ─── TODOS ─────────────────────────────────────────────────────────────────
@@ -17,7 +38,11 @@ export const TOOL_DEFINITIONS: Tool[] = [
     input_schema: {
       type: "object",
       properties: {
-        text: { type: "string", description: "Task description (max 500 chars)" },
+        text: { type: "string", description: "Task title (max 500 chars)" },
+        description: {
+          type: "string",
+          description: "Optional longer body — details, links, sub-steps. Newlines are fine.",
+        },
         category: {
           type: "string",
           enum: ["general", "visa", "job", "learning", "personal"],
@@ -69,6 +94,10 @@ export const TOOL_DEFINITIONS: Tool[] = [
       properties: {
         id: { type: "integer" },
         text: { type: "string" },
+        description: {
+          type: "string",
+          description: "Replace the task's longer body. Pass an empty string \"\" to clear it. Omit to leave unchanged.",
+        },
         category: { type: "string", enum: ["general", "visa", "job", "learning", "personal"] },
         priority: { type: "string", enum: ["high", "medium", "low"] },
         status: {
@@ -192,7 +221,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
   },
   {
     name: "delete_custom_habit",
-    description: "Remove a custom habit definition (only non-builtin can be deleted).",
+    description: "Remove a habit from the daily list. Builtins (water/walk/workout/breakfast/quran) can be removed too — their recorded history is kept and the dashboard can restore the defaults.",
     input_schema: {
       type: "object",
       properties: { habit_id: { type: "string" } },
@@ -220,11 +249,13 @@ export const TOOL_DEFINITIONS: Tool[] = [
   },
   {
     name: "update_application",
-    description: "Update an application's status or notes.",
+    description: "Update an application's company, role, status, or notes. Pass only the fields you want to change.",
     input_schema: {
       type: "object",
       properties: {
         id: { type: "integer" },
+        company: { type: "string" },
+        role: { type: "string" },
         status: {
           type: "string",
           enum: ["applied", "screening", "interview", "offer", "rejected"],
@@ -255,6 +286,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
         amount: { type: "number", minimum: 0 },
         description: { type: "string" },
         category: { type: "string" },
+        date: { type: "string", description: "ISO date YYYY-MM-DD. Default today (in Kamronbek's timezone)." },
       },
       required: ["type", "amount"],
     },
@@ -430,6 +462,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
         title: { type: "string" },
         emoji: { type: "string" },
         description: { type: "string" },
+        position: { type: "integer", description: "Order in the subject list (0-based)." },
       },
       required: ["id"],
     },
@@ -490,6 +523,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
         node_id: { type: "integer" },
         score: { type: "integer", minimum: 1, maximum: 5 },
         notes: { type: "string" },
+        duration_minutes: { type: "integer", minimum: 0, description: "How long the recall session took." },
       },
       required: ["node_id", "score"],
     },
@@ -574,15 +608,152 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
     },
   },
+  {
+    name: "mark_inbox_message",
+    description:
+      "Change an inbox message's status: mark it read/unread, or archive/unarchive it. Use the numeric id from get_inbox. This is the 'triage' half that get_inbox describes — without it Claude can only read the inbox, never tidy it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "integer", description: "Inbox message id (from get_inbox)." },
+        action: { type: "string", enum: ["read", "unread", "archive", "unarchive"] },
+      },
+      required: ["id", "action"],
+    },
+  },
+  {
+    name: "delete_inbox_message",
+    description:
+      "Permanently delete an inbox message and its attachments. Irreversible — prefer archiving unless Kamronbek explicitly asks to delete.",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "integer", description: "Inbox message id (from get_inbox)." } },
+      required: ["id"],
+    },
+  },
+  // ─── JOURNAL EXPORT & HISTORY ────────────────────────────────────────────────
+  {
+    name: "get_journal_logs",
+    description:
+      "Read Kamronbek's journal entries for a date range. The snapshot already carries the last 7 days — use this when he asks about anything older ('what did I write in June?', 'when did I last mention the visa?', 'summarise last month'). Returns one line per day that has content; empty days are skipped.",
+    input_schema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Start date, ISO YYYY-MM-DD (inclusive)." },
+        to: { type: "string", description: "End date, ISO YYYY-MM-DD (inclusive). Default today." },
+      },
+      required: ["from"],
+    },
+  },
+  {
+    name: "send_journal_file",
+    description:
+      "Export journal entries for a date range as a Markdown file and send it to Kamronbek in this Telegram chat as a real downloadable document. Use it whenever he asks to 'send', 'export', or 'download' his journal/log for a period. The file is delivered as an attachment — do not paste the contents into the chat as well.",
+    input_schema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Start date, ISO YYYY-MM-DD (inclusive)." },
+        to: { type: "string", description: "End date, ISO YYYY-MM-DD (inclusive). Default today." },
+      },
+      required: ["from"],
+    },
+  },
+
+  // ─── INBOX (write) ───────────────────────────────────────────────────────────
+  {
+    name: "send_email",
+    description:
+      "Send an email from one of Kamronbek's verified addresses, or reply to an inbox message. Use `in_reply_to` with an inbox message id to thread the reply (its sender becomes the recipient unless `to` is given). Always confirm the recipient, subject and body with him before sending — this leaves the dashboard.",
+    input_schema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "Recipient email. Optional when replying — defaults to the original sender." },
+        subject: { type: "string" },
+        body: { type: "string", description: "Plain-text body. Newlines are preserved." },
+        in_reply_to: { type: "integer", description: "Inbox message id being replied to (from get_inbox)." },
+        from: { type: "string", description: "Sender address; must be one of the verified senders. Defaults to the first configured one." },
+      },
+      required: ["subject", "body"],
+    },
+  },
+  {
+    name: "sync_inbox",
+    description: "Pull newly received emails from Resend into the dashboard inbox. Use before reading the inbox if he expects something that just arrived.",
+    input_schema: { type: "object", properties: {} },
+  },
+
+  // ─── NOTES (lock) ────────────────────────────────────────────────────────────
+  {
+    name: "set_note_lock",
+    description:
+      "Lock or unlock a note. A locked note's body is hidden everywhere — including from you — until Kamronbek enters his PIN in the dashboard. Locking requires that a PIN already exists.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "integer" },
+        locked: { type: "boolean", description: "true to lock, false to remove the lock." },
+      },
+      required: ["id", "locked"],
+    },
+  },
+
+  // ─── HABITS (reset) ──────────────────────────────────────────────────────────
+  {
+    name: "reset_habits",
+    description: "Restore the five default habits (water/walk/workout/breakfast/quran). Existing habits are kept; a previously deleted builtin comes back with its recorded history intact.",
+    input_schema: { type: "object", properties: {} },
+  },
+
+  // ─── TRAFFIC ─────────────────────────────────────────────────────────────────
+  {
+    name: "get_analytics",
+    description:
+      "Read self-hosted Umami traffic for one of Kamronbek's sites: visitors, pageviews, bounce rate, average visit time, plus top pages, referrers, countries and browsers. Use when he asks how a site is doing, how many visitors he had, or where traffic came from.",
+    input_schema: {
+      type: "object",
+      properties: {
+        period: {
+          type: "string",
+          enum: ["24h", "7d", "30d", "90d"],
+          description: "Time window. Default '24h'.",
+        },
+        website: { type: "string", description: "Umami website id. Defaults to the primary site." },
+      },
+    },
+  },
+
+  // ─── SETTINGS ────────────────────────────────────────────────────────────────
+  {
+    name: "set_timezone",
+    description:
+      "Set the timezone the dashboard and this bot work in (IANA name, e.g. 'Asia/Tashkent'). It drives every 'today', due-date rendering, and the '# Now' line in the snapshot. The dashboard normally syncs this from the device automatically; set it manually when Kamronbek says the date or time is wrong, or that he has moved.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tz: { type: "string", description: "IANA timezone name, e.g. 'Asia/Tashkent' or 'Europe/London'." },
+      },
+      required: ["tz"],
+    },
+  },
 ];
 
 // ─── EXECUTOR ────────────────────────────────────────────────────────────────
 
 interface Input { [k: string]: unknown }
 
-function isoToday() { return new Date().toISOString().slice(0, 10); }
+// `isoToday` is imported from @/lib/timezone and is async — it resolves the
+// owner's configured zone so a 04:30 Tashkent "mark fajr" lands on today, not
+// on yesterday's UTC row.
 function asInt(v: unknown): number | null { const n = typeof v === "number" ? v : parseInt(String(v)); return isNaN(n) ? null : n; }
 function asStr(v: unknown): string | null { return typeof v === "string" ? v : null; }
+function clamp(n: number | null, min: number, max: number): number | null {
+  return n === null ? null : Math.max(min, Math.min(max, n));
+}
+function parseAmount(v: unknown): number | null {
+  if (typeof v === "number") return isNaN(v) ? null : v;
+  if (typeof v === "string" && v.trim()) { const n = parseFloat(v); return isNaN(n) ? null : n; }
+  return null;
+}
 // ISO 8601 string (ideally with an offset) -> Date instant, or null to clear.
 function parseDue(v: unknown): Date | null {
   if (v === null || v === undefined || v === "") return null;
@@ -605,12 +776,13 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       const validStatus = ["todo", "doing", "done"].includes(status) ? status : "todo";
       const due = parseDue(input.due_at);
       const rows = await query<{ id: number; text: string; category: string; priority: string; status: string; due_at: Date | null }>(
-        `INSERT INTO todos (text, category, priority, status, position, done, due_at)
-         VALUES ($1, $2, $3, $4,
-           COALESCE((SELECT MIN(position) - 1 FROM todos WHERE status = $4), 0),
-           $4 = 'done', $5)
+        `INSERT INTO todos (text, description, category, priority, status, position, done, due_at)
+         VALUES ($1, $2, $3, $4, $5,
+           COALESCE((SELECT MIN(position) - 1 FROM todos WHERE status = $5), 0),
+           $5 = 'done', $6)
          RETURNING id, text, category, priority, status, due_at`,
-        [text, asStr(input.category) ?? "general", asStr(input.priority) ?? "medium", validStatus, due]
+        [text, asStr(input.description)?.trim() || null,
+         asStr(input.category) ?? "general", asStr(input.priority) ?? "medium", validStatus, due]
       );
       const t = rows[0];
       const dueNote = t.due_at ? `, due ${fmtDueTz(new Date(t.due_at), await getTimezone())}` : "";
@@ -654,9 +826,14 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       // due_at present in the call -> set (a falsy value clears it); absent -> leave.
       const dueProvided = "due_at" in input;
       const newDue = dueProvided ? parseDue(input.due_at) : null;
+      // Same sentinel idea for description: present -> set (empty clears it);
+      // absent -> leave unchanged.
+      const descProvided = "description" in input;
+      const newDesc = descProvided ? (asStr(input.description)?.trim() || null) : null;
       await query(
         `UPDATE todos SET
            text = COALESCE($2, text),
+           description = CASE WHEN $8::boolean THEN $9 ELSE description END,
            category = COALESCE($3, category),
            priority = COALESCE($4, priority),
            status = COALESCE($5, status),
@@ -677,7 +854,8 @@ export async function executeTool(name: string, input: Input): Promise<string> {
            END,
            due_at = CASE WHEN $6::boolean THEN $7 ELSE due_at END
          WHERE id = $1`,
-        [id, asStr(input.text), asStr(input.category), asStr(input.priority), validStatus, dueProvided, newDue]
+        [id, asStr(input.text), asStr(input.category), asStr(input.priority), validStatus, dueProvided, newDue,
+         descProvided, newDesc]
       );
       return `Updated todo #${id}`;
     }
@@ -766,7 +944,7 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "mark_habit": {
       const key = asStr(input.key);
       const done = !!input.done;
-      const date = asStr(input.date) ?? isoToday();
+      const date = asStr(input.date) ?? await isoToday();
       const valid = ["water","walk","workout","breakfast","quran","fajr","dhuhr","asr","maghrib","isha"];
       if (!key || !valid.includes(key)) return `Error: key must be one of ${valid.join(",")}`;
       // Upsert into habits row for that date. Note: only the targeted column
@@ -783,8 +961,15 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "mark_custom_habit": {
       const habitId = asStr(input.habit_id);
       const done = !!input.done;
-      const date = asStr(input.date) ?? isoToday();
+      const date = asStr(input.date) ?? await isoToday();
       if (!habitId) return "Error: habit_id required";
+      // habit_custom_completions has no FK on habit_id, and both the Today tab
+      // and the snapshot iterate habit_defs — so a row written for an unknown
+      // id is invisible forever while the tool reports success.
+      const known = await query<{ id: string }>(
+        "SELECT id FROM habit_defs WHERE id = $1", [habitId],
+      );
+      if (known.length === 0) return `Error: no habit with id '${habitId}'`;
       await query(
         `INSERT INTO habit_custom_completions (date, habit_id, done) VALUES ($1, $2, $3)
          ON CONFLICT (date, habit_id) DO UPDATE SET done = EXCLUDED.done`,
@@ -806,8 +991,14 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "delete_custom_habit": {
       const habitId = asStr(input.habit_id);
       if (!habitId) return "Error: habit_id required";
-      await query("DELETE FROM habit_defs WHERE id = $1", [habitId]);
-      return `Deleted habit ${habitId}`;
+      const gone = await query<{ id: string; builtin: boolean }>(
+        "DELETE FROM habit_defs WHERE id = $1 RETURNING id, builtin", [habitId],
+      );
+      if (gone.length === 0) return `Error: no habit with id '${habitId}'`;
+      await query("DELETE FROM habit_custom_completions WHERE habit_id = $1", [habitId]);
+      return gone[0].builtin
+        ? `Deleted builtin habit ${habitId}. Its history in the habits table is kept — restoring the defaults from the dashboard brings it back.`
+        : `Deleted habit ${habitId}`;
     }
 
     // ─── APPLICATIONS ──────
@@ -826,10 +1017,12 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       if (!id) return "Error: id required";
       await query(
         `UPDATE applications SET
-           status = COALESCE($2, status),
-           notes = COALESCE($3, notes)
+           company = COALESCE($2, company),
+           role = COALESCE($3, role),
+           status = COALESCE($4, status),
+           notes = COALESCE($5, notes)
          WHERE id = $1`,
-        [id, asStr(input.status), asStr(input.notes)]
+        [id, asStr(input.company), asStr(input.role), asStr(input.status), asStr(input.notes)]
       );
       return `Updated application #${id}`;
     }
@@ -846,9 +1039,12 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       const amount = typeof input.amount === "number" ? input.amount : parseFloat(String(input.amount));
       if (!type || (type !== "income" && type !== "expense")) return "Error: type must be 'income' or 'expense'";
       if (isNaN(amount) || amount <= 0) return "Error: amount must be positive";
+      // CURRENT_DATE is the server's UTC day; bill it to the owner's day, and
+      // let the caller back-date (the UI can, so chat should too).
+      const entryDate = asStr(input.date) ?? await isoToday();
       const rows = await query<{ id: number }>(
-        `INSERT INTO budget_entries (type, amount, description, category, date) VALUES ($1, $2, $3, $4, CURRENT_DATE) RETURNING id`,
-        [type, amount, asStr(input.description), asStr(input.category)]
+        `INSERT INTO budget_entries (type, amount, description, category, date) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [type, amount, asStr(input.description), asStr(input.category), entryDate]
       );
       return `Added ${type} #${rows[0].id}: $${amount}${input.description ? ` "${input.description}"` : ""}`;
     }
@@ -918,8 +1114,12 @@ export async function executeTool(name: string, input: Input): Promise<string> {
            day = COALESCE($5, day),
            active = COALESCE($6, active)
          WHERE id = $1`,
-        [id, asStr(input.name), typeof input.amount === "number" ? input.amount : null,
-         asStr(input.currency), asInt(input.day), typeof input.active === "boolean" ? input.active : null]
+        // `day` has a CHECK (1..31): add_subscription clamps, so this must too,
+        // or a stray 32 becomes a constraint violation instead of an update.
+        // Amount accepts a numeric string like update_budget_entry does.
+        [id, asStr(input.name), parseAmount(input.amount),
+         asStr(input.currency), clamp(asInt(input.day), 1, 31),
+         typeof input.active === "boolean" ? input.active : null]
       );
       return `Updated subscription ${id}`;
     }
@@ -932,10 +1132,10 @@ export async function executeTool(name: string, input: Input): Promise<string> {
 
     // ─── JOURNAL ───────────
     case "save_journal_log": {
-      const date = asStr(input.date) ?? isoToday();
+      const date = asStr(input.date) ?? await isoToday();
       await query(
         `INSERT INTO daily_log (date, what_worked, tomorrow_task, visa_progress, workout_pushups, workout_plank, workout_walk, notes, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+         VALUES ($1, $2, $3, $4, COALESCE($5, 0), COALESCE($6, 0), COALESCE($7, 0), $8, NOW())
          ON CONFLICT (date) DO UPDATE SET
            what_worked = COALESCE(EXCLUDED.what_worked, daily_log.what_worked),
            tomorrow_task = COALESCE(EXCLUDED.tomorrow_task, daily_log.tomorrow_task),
@@ -945,9 +1145,12 @@ export async function executeTool(name: string, input: Input): Promise<string> {
            workout_walk = COALESCE(EXCLUDED.workout_walk, daily_log.workout_walk),
            notes = COALESCE(EXCLUDED.notes, daily_log.notes),
            updated_at = NOW()`,
+        // The workout params must stay NULL when the caller omits them, or the
+        // COALESCE above sees a real 0 and wipes the numbers already logged for
+        // that day. COALESCE in VALUES keeps a fresh row at 0.
         [date, asStr(input.what_worked), asStr(input.tomorrow_task), asStr(input.visa_progress),
-         asInt(input.workout_pushups) ?? 0, asInt(input.workout_plank) ?? 0,
-         asInt(input.workout_walk) ?? 0, asStr(input.notes)]
+         asInt(input.workout_pushups), asInt(input.workout_plank),
+         asInt(input.workout_walk), asStr(input.notes)]
       );
       return `Saved journal log for ${date}`;
     }
@@ -985,7 +1188,7 @@ export async function executeTool(name: string, input: Input): Promise<string> {
 
     // ─── SESSIONS ──────────
     case "list_sessions": {
-      const list = await listSessions();
+      const list = await listSessions(OWNER_MEMBER_ID);
       if (list.length === 0) return "No active sessions.";
       const relAgo = (iso: string) => {
         const t = new Date(iso).getTime();
@@ -1004,11 +1207,12 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "revoke_session": {
       const id = asStr(input.id);
       if (!id) return "Error: id required";
-      await revokeSession(id);
+      const ok = await revokeSession(id, OWNER_MEMBER_ID);
+      if (!ok) return `No active session ${id} belonging to you.`;
       return `Revoked session ${id}.`;
     }
     case "end_all_sessions": {
-      await revokeAllSessions();
+      await revokeAllSessions(OWNER_MEMBER_ID);
       return "Revoked all active sessions — signed out everywhere (web + Telegram). You'll need to log in again.";
     }
 
@@ -1031,9 +1235,10 @@ export async function executeTool(name: string, input: Input): Promise<string> {
            title = COALESCE($2, title),
            emoji = COALESCE($3, emoji),
            description = COALESCE($4, description),
+           position = COALESCE($5, position),
            updated_at = NOW()
          WHERE id = $1`,
-        [id, asStr(input.title), asStr(input.emoji), asStr(input.description)]
+        [id, asStr(input.title), asStr(input.emoji), asStr(input.description), asInt(input.position)]
       );
       return `Updated subject #${id}`;
     }
@@ -1068,10 +1273,14 @@ export async function executeTool(name: string, input: Input): Promise<string> {
            description = COALESCE($3, description),
            status = COALESCE($4, status),
            mastery_percent = COALESCE($5, mastery_percent),
+           position = COALESCE($6, position),
+           parent_id = COALESCE($7, parent_id),
+           resources = COALESCE($8, resources),
            updated_at = NOW()
          WHERE id = $1`,
         [id, asStr(input.title), asStr(input.description),
-         asStr(input.status), asInt(input.mastery_percent)]
+         asStr(input.status), clamp(asInt(input.mastery_percent), 0, 100),
+         asInt(input.position), asInt(input.parent_id), asStr(input.resources)]
       );
       return `Updated learn node #${id}`;
     }
@@ -1096,8 +1305,8 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       const newStatus = statusFromHistory(score, node.status);
       const newMastery = masteryFromState(next.ease_factor, next.interval_days);
       await query(
-        `INSERT INTO learn_sessions (node_id, recall_score, notes) VALUES ($1, $2, $3)`,
-        [nodeId, score, asStr(input.notes)]
+        `INSERT INTO learn_sessions (node_id, recall_score, notes, duration_minutes) VALUES ($1, $2, $3, $4)`,
+        [nodeId, score, asStr(input.notes), asInt(input.duration_minutes)]
       );
       await query(
         `UPDATE learn_nodes SET ease_factor = $2, interval_days = $3, next_review = $4,
@@ -1163,10 +1372,14 @@ export async function executeTool(name: string, input: Input): Promise<string> {
     case "get_inbox": {
       const status = asStr(input.status) ?? "new";
       const limit = Math.min(Math.max(asInt(input.limit) ?? 20, 1), 100);
+      // "all" is declared in the schema and must actually mean all — it used to
+      // fall into the same branch as an unknown value and drop archived rows.
       const where =
         status === "new" || status === "read" || status === "archived"
           ? "WHERE status = $1"
-          : "WHERE status <> 'archived'";
+          : status === "all"
+            ? ""
+            : "WHERE status <> 'archived'";
       const params = where.includes("$1") ? [status] : [];
       const messages = await query(
         `SELECT id, source, kind, category, name, email, subject, message, status, created_at
@@ -1181,6 +1394,194 @@ export async function executeTool(name: string, input: Input): Promise<string> {
         if (r.status in counts) counts[r.status as keyof typeof counts] = Number(r.n);
       }
       return JSON.stringify({ counts, messages });
+    }
+    case "mark_inbox_message": {
+      const id = asInt(input.id);
+      const action = asStr(input.action);
+      if (!id) return "Error: id required";
+      const sql: Record<string, string> = {
+        read:      "UPDATE inbox_messages SET status='read', read_at=COALESCE(read_at, now()) WHERE id=$1",
+        unread:    "UPDATE inbox_messages SET status='new', read_at=NULL WHERE id=$1",
+        archive:   "UPDATE inbox_messages SET status='archived', read_at=COALESCE(read_at, now()) WHERE id=$1",
+        unarchive: "UPDATE inbox_messages SET status='read', read_at=COALESCE(read_at, now()) WHERE id=$1",
+      };
+      if (!action || !(action in sql)) {
+        return "Error: action must be read, unread, archive, or unarchive";
+      }
+      await query(sql[action], [id]);
+      return `Inbox message #${id}: ${action}`;
+    }
+    case "delete_inbox_message": {
+      const id = asInt(input.id);
+      if (!id) return "Error: id required";
+      // Collect storage keys before the cascade drops the rows, so the bytes
+      // are reclaimed rather than orphaned — same as the dashboard route.
+      const files = await query<{ storage_key: string }>(
+        "SELECT storage_key FROM inbox_attachments WHERE message_id = $1", [id],
+      );
+      await query("DELETE FROM inbox_messages WHERE id = $1", [id]);
+      for (const f of files) await deleteStoredFile(f.storage_key);
+      return `Deleted inbox message #${id}`;
+    }
+    // ─── JOURNAL EXPORT & HISTORY ─────
+    case "get_journal_logs": {
+      const from = asStr(input.from);
+      const to = asStr(input.to) ?? await isoToday();
+      if (!from || !ISO_DATE.test(from)) return "Error: from must be an ISO date (YYYY-MM-DD)";
+      if (!ISO_DATE.test(to)) return "Error: to must be an ISO date (YYYY-MM-DD)";
+      if (from > to) return "Error: from must be on or before to";
+      const rows = await fetchJournal(from, to);
+      return `Journal ${from} → ${to} (${rows.length} entries)\n${renderJournalPlain(rows)}`;
+    }
+    case "send_journal_file": {
+      const from = asStr(input.from);
+      const to = asStr(input.to) ?? await isoToday();
+      if (!from || !ISO_DATE.test(from)) return "Error: from must be an ISO date (YYYY-MM-DD)";
+      if (!ISO_DATE.test(to)) return "Error: to must be an ISO date (YYYY-MM-DD)";
+      if (from > to) return "Error: from must be on or before to";
+      if (!OWNER_CHAT_ID) return "Error: OWNER_TELEGRAM_ID is not configured — nowhere to send the file";
+
+      const rows = await fetchJournal(from, to);
+      if (rows.length === 0) return `No journal entries with content between ${from} and ${to} — nothing to send.`;
+
+      const md = renderJournalMarkdown(rows, from, to, "ru");
+      const res = await tgSendDocument(
+        OWNER_CHAT_ID,
+        { filename: `journal-${from}_${to}.md`, content: md },
+        { caption: `${from} — ${to} · ${rows.length}` },
+      );
+      if (!res.ok) return `Error sending the file: ${res.description ?? "unknown Telegram error"}`;
+      return `Sent journal-${from}_${to}.md (${rows.length} entries) to the chat as an attachment. Do not repeat its contents here.`;
+    }
+
+    // ─── INBOX (write) ─────
+    case "send_email": {
+      const subject = asStr(input.subject);
+      const body = asStr(input.body);
+      if (!subject) return "Error: subject required";
+      if (!body) return "Error: body required";
+      const inReplyTo = asInt(input.in_reply_to);
+
+      let to = asStr(input.to);
+      let toName: string | null = null;
+      if (!to && inReplyTo) {
+        // Replying: the recipient is whoever wrote the original message.
+        const orig = await query<{ email: string | null; name: string | null }>(
+          "SELECT email, name FROM inbox_messages WHERE id = $1", [inReplyTo],
+        );
+        if (orig.length === 0) return `Error: no inbox message #${inReplyTo}`;
+        if (!orig[0].email) return `Error: inbox message #${inReplyTo} has no sender address to reply to`;
+        to = orig[0].email;
+        toName = orig[0].name;
+      }
+      if (!to) return "Error: to required (or pass in_reply_to to reply to an inbox message)";
+
+      const res = await sendAndStore({
+        from: asStr(input.from) ?? undefined,
+        to, toName, subject, body,
+        inReplyTo: inReplyTo ?? null,
+      });
+      if (!res.ok) return `Error sending email: ${res.error ?? "unknown"}`;
+      if (inReplyTo) {
+        await query(
+          `UPDATE inbox_messages SET status='read', read_at=COALESCE(read_at, now())
+           WHERE id=$1 AND status='new'`,
+          [inReplyTo],
+        ).catch(() => {});
+      }
+      return `Sent "${subject}" to ${to} (sent id #${res.id}).`;
+    }
+    case "sync_inbox": {
+      const { synced, checked } = await syncReceivedEmails();
+      return checked === 0
+        ? "Inbox sync ran but Resend returned nothing (no key configured, or no received mail)."
+        : `Synced ${synced} new message(s) out of ${checked} checked.`;
+    }
+
+    // ─── NOTES (lock) ─────
+    case "set_note_lock": {
+      const id = asInt(input.id);
+      const locked = input.locked;
+      if (!id) return "Error: id required";
+      if (typeof locked !== "boolean") return "Error: locked must be true or false";
+      if (locked) {
+        const pin = await query<{ key: string }>(
+          "SELECT key FROM settings WHERE key = 'note_pin'",
+        );
+        if (pin.length === 0) {
+          return "Error: no PIN is set yet — Kamronbek needs to set one in the dashboard before notes can be locked.";
+        }
+      }
+      const rows = await query<{ id: number }>(
+        "UPDATE notes SET locked = $2, updated_at = NOW() WHERE id = $1 RETURNING id",
+        [id, locked],
+      );
+      if (rows.length === 0) return `Error: no note #${id}`;
+      return locked
+        ? `Note #${id} locked. Its body is now hidden from the snapshot until the PIN is entered in the dashboard.`
+        : `Note #${id} unlocked.`;
+    }
+
+    // ─── HABITS (reset) ─────
+    case "reset_habits": {
+      for (const h of DEFAULT_HABITS) {
+        await query(
+          `INSERT INTO habit_defs (id, label, builtin, position) VALUES ($1,$2,TRUE,$3)
+           ON CONFLICT (id) DO UPDATE SET builtin = TRUE, position = EXCLUDED.position, updated_at = NOW()`,
+          [h.id, h.label, h.position],
+        );
+      }
+      return `Restored the default habits: ${DEFAULT_HABITS.map(h => h.label).join(", ")}.`;
+    }
+
+    // ─── TRAFFIC ─────
+    case "get_analytics": {
+      if (!umamiConfigured()) return "Umami analytics is not configured on this server.";
+      const websiteId = asStr(input.website) ?? DEFAULT_WEBSITE_ID;
+      if (!websiteId) return "Error: no Umami website id configured or supplied";
+      const periodKey = asStr(input.period) ?? "24h";
+      const { startAt, endAt, unit } = periodRange(periodKey);
+      const base = `/api/websites/${websiteId}`;
+      const range = `startAt=${startAt}&endAt=${endAt}`;
+      try {
+        const [stats, pages, referrers, countries] = await Promise.all([
+          umami<UmamiStats>(`${base}/stats?${range}`),
+          umami<Metric[]>(`${base}/metrics?${range}&type=path&limit=6`),
+          umami<Metric[]>(`${base}/metrics?${range}&type=referrer&limit=6`),
+          umami<Metric[]>(`${base}/metrics?${range}&type=country&limit=6`),
+        ]);
+        const top = (m: Metric[]) => m.map(x => `${x.x ?? "—"}: ${x.y}`).join(", ") || "—";
+        return JSON.stringify({
+          website: websiteId, period: periodKey, unit,
+          visitors: stats.visitors,
+          pageviews: stats.pageviews,
+          visits: stats.visits,
+          bounces: stats.bounces,
+          totalTimeSeconds: stats.totaltime,
+          topPages: top(pages), topReferrers: top(referrers), topCountries: top(countries),
+        });
+      } catch (e) {
+        return `Error reading analytics: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+
+    case "set_timezone": {
+      const tz = asStr(input.tz);
+      if (!tz) return "Error: tz required";
+      // Validate against the platform's zone database — a typo here would
+      // silently move every "today" in the app.
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(new Date());
+      } catch {
+        return `Error: '${tz}' is not a valid IANA timezone`;
+      }
+      await query(
+        `INSERT INTO settings (key, value, updated_at)
+         VALUES ('timezone', $1::jsonb, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [JSON.stringify({ tz, auto: false })],
+      );
+      return `Timezone set to ${tz} (manual — the dashboard will stop auto-syncing it from the device). Local date is now ${isoDateIn(tz)}.`;
     }
 
     default:

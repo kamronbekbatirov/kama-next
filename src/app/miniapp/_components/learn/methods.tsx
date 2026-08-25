@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { useLang } from "@/components/providers";
+import { localeOf } from "../_shared";
 import { learnApi } from "./api";
 import type { LearnMethodEntry, MethodKind } from "./types";
 
@@ -23,7 +24,7 @@ const METHOD_META: { kind: MethodKind; icon: ReactNode; tone: string }[] = [
 ];
 
 export function MethodsPane() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const l = t.dash.learn;
   const [entries, setEntries] = useState<LearnMethodEntry[]>([]);
   const [open, setOpen] = useState<MethodKind | null>(null);
@@ -75,7 +76,7 @@ export function MethodsPane() {
                           {e.title || methodSummary(e)}
                         </div>
                         <span className="text-[9px] text-[var(--muted)] uppercase tracking-wider shrink-0">
-                          {new Date(e.created_at).toLocaleDateString("ru-RU", {
+                          {new Date(e.created_at).toLocaleDateString(localeOf(lang), {
                             day: "numeric",
                             month: "short",
                           })}
@@ -131,7 +132,9 @@ function methodSummary(e: LearnMethodEntry): string {
     case "if_then":
       return `If ${d.if_part ?? "—"} → ${d.then_part ?? "—"}`;
     case "goal":
-      return d.title ?? "—";
+      // The goal editor writes `what` / `metric` / `deadline` / `progress` — it
+      // never writes a `title` into `data`, so this always rendered a dash.
+      return d.what || d.metric || "—";
     case "commitment":
       return d.statement ?? "—";
     case "intrinsic":

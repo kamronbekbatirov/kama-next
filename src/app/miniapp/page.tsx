@@ -92,7 +92,14 @@ export default function DashboardPage() {
   useEffect(() => {
     fetch("/api/auth/me")
       .then(r => r.json())
-      .then(data => { if (data.ok) setAuthed(true); else router.replace("/miniapp/login"); })
+      .then(data => {
+        if (!data.ok) { router.replace("/miniapp/login"); return; }
+        // A guest has no business in this shell — send them to theirs. The
+        // middleware does the same from the cookie so there is no flash of the
+        // owner's nav on a cold load.
+        if (data.role === "guest") { router.replace("/miniapp/tracker"); return; }
+        setAuthed(true);
+      })
       .catch(() => router.replace("/miniapp/login"))
       .finally(() => setChecking(false));
   }, [router]);

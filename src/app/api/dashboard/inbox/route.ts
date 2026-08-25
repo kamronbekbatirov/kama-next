@@ -1,14 +1,11 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 import type { InboxMessage } from "@/lib/inbox";
 import { deleteStoredFile, mintDownloadToken } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
+const auth = requireOwner;
 
 const COLS = `id, source, kind, category, name, email, subject, message, html, meta,
               ip, user_agent, status, created_at, read_at`;

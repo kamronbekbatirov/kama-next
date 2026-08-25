@@ -1,10 +1,7 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
+const auth = requireOwner;
 
 export async function GET() {
   try {
@@ -27,7 +24,10 @@ export async function POST(req: Request) {
       [company, role, status ?? "applied", notes ?? null]
     );
     return Response.json(rows[0]);
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("applications:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }
@@ -47,7 +47,10 @@ export async function PATCH(req: Request) {
       [id, company ?? null, role ?? null, status ?? null, notes ?? null]
     );
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("applications:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }
@@ -58,7 +61,10 @@ export async function DELETE(req: Request) {
     const { id } = await req.json();
     await query("DELETE FROM applications WHERE id = $1", [id]);
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("applications:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }

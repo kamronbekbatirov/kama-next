@@ -55,14 +55,50 @@ export const STATUS_TONE: Record<string, "outline" | "default" | "success" | "wa
 };
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
-export function today() { return new Date().toISOString().slice(0, 10); }
+/** BCP-47 tag for a UI language. The dashboard used to hardcode "ru-RU" for
+ *  every date, so an EN or UZ session still read "пятница, 15 августа". */
+export function localeOf(lang: string): string {
+  return ({ en: "en-GB", ru: "ru-RU", uz: "uz-Cyrl-UZ" } as Record<string, string>)[lang] ?? "en-GB";
+}
+
+/** Format a `YYYY-MM-DD` string without the UTC round-trip that
+ *  `new Date("YYYY-MM-DD")` performs (it would show the previous day west of
+ *  Greenwich). */
+export function fmtDay(iso: string, locale: string, opts: Intl.DateTimeFormatOptions): string {
+  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString(locale, opts);
+}
+
+/** `YYYY-MM-DD` for an instant in `tz` (defaults to the device's zone).
+ *  Never use `toISOString()` for this: it is UTC, so east of Greenwich it
+ *  returns yesterday until the offset has elapsed — 00:00–05:00 in Tashkent. */
+export function todayIn(tz?: string, d: Date = new Date()): string {
+  if (tz) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(d);
+      const g = (t: string) => parts.find(p => p.type === t)?.value ?? "";
+      const y = g("year"), m = g("month"), day = g("day");
+      if (y && m && day) return `${y}-${m}-${day}`;
+    } catch { /* bad zone — fall back to the device clock */ }
+  }
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+export function today() { return todayIn(); }
 export function fmtMin(m: number) { return `${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`; }
 export function parseTime(s: string) { const [h,m] = s.split(":").map(Number); return isNaN(h)||isNaN(m) ? null : h*60+m; }
-export function getLast(n: number): string[] {
-  return Array.from({length: n}, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - (n - 1 - i));
-    return d.toISOString().slice(0, 10);
-  });
+/** Shift a `YYYY-MM-DD` string by whole days, staying on the calendar grid. */
+export function shiftDate(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (isNaN(d.getTime())) return iso;
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+/** The last `n` calendar days ending today, oldest first, in `tz`. */
+export function getLast(n: number, tz?: string): string[] {
+  const end = todayIn(tz);
+  return Array.from({ length: n }, (_, i) => shiftDate(end, -(n - 1 - i)));
 }
 
 // ─── DUE DATE HELPERS ────────────────────────────────────────────────────────
@@ -107,6 +143,37 @@ export function isOverdue(iso: string | null | undefined): boolean {
   if (!iso) return false;
   const d = new Date(iso);
   return !isNaN(d.getTime()) && d.getTime() < Date.now();
+}
+
+// ─── SAVING A FILE TO THE DEVICE ─────────────────────────────────────────────
+/** The slice of the Telegram WebApp SDK used for saving files. */
+interface TGDownload {
+  isVersionAtLeast?: (v: string) => boolean;
+  downloadFile?: (
+    params: { url: string; file_name: string },
+    callback?: (accepted: boolean) => void,
+  ) => void;
+}
+
+/**
+ * Save a file to the device. Inside Telegram (Bot API 8.0+) this opens the
+ * native "download file?" prompt — the only way to get a real file into phone
+ * storage from a Mini App, and it needs an absolute HTTPS URL because the
+ * download runs outside the web view. Everywhere else, a plain link.
+ */
+export function saveFile(url: string, filename: string) {
+  const absolute = typeof window === "undefined" ? url : new URL(url, window.location.origin).href;
+  const tg = (window as unknown as { Telegram?: { WebApp?: TGDownload } }).Telegram?.WebApp;
+  if (tg?.downloadFile && tg.isVersionAtLeast?.("8.0")) {
+    tg.downloadFile({ url: absolute, file_name: filename });
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = absolute;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 // ─── API HELPERS ─────────────────────────────────────────────────────────────

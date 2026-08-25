@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { requireOwner } from "@/lib/guard";
 
 const VALID_STATUSES = ["todo", "doing", "done"] as const;
 type Status = typeof VALID_STATUSES[number];
@@ -7,10 +7,7 @@ function isStatus(v: unknown): v is Status {
   return typeof v === "string" && (VALID_STATUSES as readonly string[]).includes(v);
 }
 
-async function auth() {
-  const s = await getSession();
-  if (!s?.authenticated) throw new Error("unauthorized");
-}
+const auth = requireOwner;
 
 // Accepts an ISO 8601 string (or "" / null to clear). Returns a Date for the
 // instant, or null. The UI sends a UTC ISO string built from the user's local
@@ -166,7 +163,10 @@ export async function DELETE(req: Request) {
     const { id } = await req.json();
     await query("DELETE FROM todos WHERE id = $1", [id]);
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return Response.json({ error: "unauthorized" }, { status: 401 });
+    console.error("todos:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }

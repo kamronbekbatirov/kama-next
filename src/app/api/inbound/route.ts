@@ -34,25 +34,94 @@ function htmlToText(html: string): string {
     .trim();
 }
 
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+function b64(bytes: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)));
+}
+
+/**
+ * Svix (the delivery layer Resend webhooks use) signs
+ * `${svix-id}.${svix-timestamp}.${raw body}` with the base64 secret that follows
+ * the `whsec_` prefix, and sends one or more `v1,<sig>` pairs.
+ */
+async function svixValid(req: Request, raw: string, secret: string): Promise<boolean> {
+  const id = req.headers.get("svix-id");
+  const ts = req.headers.get("svix-timestamp");
+  const sigHeader = req.headers.get("svix-signature");
+  if (!id || !ts || !sigHeader) return false;
+
+  // Reject replays outside a 5-minute window.
+  const age = Math.abs(Date.now() / 1000 - Number(ts));
+  if (!Number.isFinite(age) || age > 300) return false;
+
+  const keyBytes = Uint8Array.from(atob(secret.replace(/^whsec_/, "")), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey(
+    "raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const mac = b64(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${id}.${ts}.${raw}`)));
+
+  return sigHeader
+    .split(" ")
+    .map(part => part.split(",", 2))
+    .some(([version, sig]) => version === "v1" && sig && timingSafeEqual(sig, mac));
+}
+
 /**
  * Resend inbound webhook. Emails to hi@kama.uz (and any domain whose MX points
  * at Resend) (1) land in the dashboard inbox and (2) are forwarded once to the
  * personal mailbox (INBOUND_FORWARD_TO). Forwarding also runs from the polling
  * sync (lib/inbox-sync), which is the reliable path since this webhook is not
  * always delivered. Both gate the forward on first ingest, so it fires once.
+ *
+ * Authentication is mandatory. Unauthenticated, this endpoint let anyone inject
+ * arbitrary HTML into the dashboard inbox *and* make the owner's Resend account
+ * forward it to INBOUND_FORWARD_TO. It fails closed: the polling sync still
+ * ingests everything, so a rejected webhook costs latency, not mail.
  */
 export async function POST(req: Request) {
-  const payload = await req.json();
+  const raw = await req.text();
+
+  const svixSecret = process.env.RESEND_WEBHOOK_SECRET;
+  const sharedSecret = process.env.INBOUND_WEBHOOK_SECRET;
+  const provided =
+    new URL(req.url).searchParams.get("secret") ?? req.headers.get("x-webhook-secret") ?? "";
+
+  const authed = svixSecret
+    ? await svixValid(req, raw, svixSecret)
+    : !!sharedSecret && timingSafeEqual(provided, sharedSecret);
+
+  if (!authed) {
+    if (!svixSecret && !sharedSecret) {
+      console.error("[inbound] rejected: set RESEND_WEBHOOK_SECRET or INBOUND_WEBHOOK_SECRET");
+    }
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  let payload: Record<string, unknown> & { data?: Record<string, unknown> };
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return Response.json({ error: "bad_request" }, { status: 400 });
+  }
 
   // Resend sends: { type: "email.received", data: { email_id, from, to, subject, text?, html?, ... } }
-  const data = payload?.data ?? payload;
-  const emailId: string | undefined = data?.email_id;
-  const from: string = data?.from || "unknown";
-  const subject: string = data?.subject || "(no subject)";
+  const data: Record<string, unknown> = payload?.data ?? payload;
   const pick = (...keys: string[]): string => {
-    for (const k of keys) if (typeof data?.[k] === "string" && data[k]) return data[k];
+    for (const k of keys) {
+      const v = data[k];
+      if (typeof v === "string" && v) return v;
+    }
     return "";
   };
+  const emailId: string | undefined = pick("email_id") || undefined;
+  const from: string = pick("from") || "unknown";
+  const subject: string = pick("subject") || "(no subject)";
 
   // Body: prefer what Resend includes in the webhook payload (field names vary),
   // then fall back to the per-email API. Resend exposes no public GET for the
