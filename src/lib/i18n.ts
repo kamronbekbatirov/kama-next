@@ -524,6 +524,7 @@ export const translations = {
         remindAt: "Remind me at",
         remindOff: "off",
         remindHint: "At that time you get your own plan back, in Telegram. Nothing is sent on a day you have already logged.",
+        remindNeedsChat: "To send reminders the bot needs permission to message you. Open the chat with the bot and allow it, then set the time again.",
       },
       settingsModal: {
         title: "Settings",
@@ -1300,6 +1301,7 @@ export const translations = {
         remindAt: "Напомнить в",
         remindOff: "выкл",
         remindHint: "В это время придёт твой же план — в Telegram. В день, когда отметка уже стоит, ничего не приходит.",
+        remindNeedsChat: "Чтобы напоминать, боту нужно разрешение писать тебе. Открой чат с ботом, разреши — и поставь время заново.",
       },
       settingsModal: {
         title: "Настройки",
@@ -2076,6 +2078,7 @@ export const translations = {
         remindAt: "Эслатиш вақти",
         remindOff: "ўчиқ",
         remindHint: "Ўша вақтда режангиз Telegram орқали келади. Белги қўйилган кунда ҳеч нарса юборилмайди.",
+        remindNeedsChat: "Эслатиш учун ботга ёзиш рухсати керак. Бот билан чатни очиб рухсат беринг, сўнг вақтни қайта қўйинг.",
       },
       settingsModal: {
         title: "Созламалар",

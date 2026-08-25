@@ -13,6 +13,7 @@ import { useLang } from "@/components/providers";
 import { localeOf } from "../_shared";
 import { learnApi } from "./api";
 import type { LearnMethodEntry, MethodKind } from "./types";
+import { tgConfirm } from "@/lib/telegram-webapp";
 
 const METHOD_META: { kind: MethodKind; icon: ReactNode; tone: string }[] = [
   { kind: "woop", icon: <Sparkles className="h-5 w-5" />, tone: "from-rose-500/10 to-pink-500/5" },
@@ -174,7 +175,7 @@ function MethodDialog({
 
   const remove = async () => {
     if (!entry || !onDeleted) return;
-    if (!confirm(l.methods.confirmDelete)) return;
+    if (!(await tgConfirm(l.methods.confirmDelete))) return;
     await learnApi.deleteMethod(entry.id);
     onDeleted();
   };

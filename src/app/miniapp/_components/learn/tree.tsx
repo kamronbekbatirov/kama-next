@@ -15,6 +15,7 @@ import { useLang } from "@/components/providers";
 import { localeOf } from "../_shared";
 import { learnApi } from "./api";
 import type { LearnNode, LearnSession, LearnStatus, LearnSubject } from "./types";
+import { tgConfirm } from "@/lib/telegram-webapp";
 
 const STATUS_VARIANT: Record<LearnStatus, "outline" | "success" | "warning" | "default"> = {
   not_started: "outline",
@@ -148,7 +149,7 @@ export function TreePane() {
         }}
         onOpenNode={setOpenNode}
         onDeleteSubject={async () => {
-          if (!confirm(l.tree.confirmDeleteSubject)) return;
+          if (!(await tgConfirm(l.tree.confirmDeleteSubject))) return;
           await learnApi.deleteSubject(activeSubject.id);
           setActiveSubject(null);
           await refreshSubjects();
@@ -600,7 +601,7 @@ function NodeDetailSheet({
 
   const remove = async () => {
     if (!node) return;
-    if (!confirm(l.tree.confirmDeleteNode)) return;
+    if (!(await tgConfirm(l.tree.confirmDeleteNode))) return;
     await learnApi.deleteNode(node.id);
     onClose();
     await onUpdated();

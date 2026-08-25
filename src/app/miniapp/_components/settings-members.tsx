@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLang } from "@/components/providers";
 import { SectionHeader, IconButton } from "./dashboard-ui";
+import { tgConfirm } from "@/lib/telegram-webapp";
 
 interface Member {
   id: string;
@@ -55,7 +56,7 @@ export function MembersSection({ open }: { open: boolean }) {
   };
 
   const revoke = async (row: Member) => {
-    if (!confirm(m.revokeConfirm.replace("{name}", row.display_name))) return;
+    if (!(await tgConfirm(m.revokeConfirm.replace("{name}", row.display_name)))) return;
     await fetch("/api/admin/members", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },

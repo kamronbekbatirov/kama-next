@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useLang } from "@/components/providers";
 import { learnApi } from "./api";
 import type { LearnMethodEntry } from "./types";
+import { tgConfirm } from "@/lib/telegram-webapp";
 
 interface GoalData {
   what?: string;
@@ -153,7 +154,7 @@ function GoalDialog({
 
   const remove = async () => {
     if (!entry) return;
-    if (!confirm(l.methods.confirmDelete)) return;
+    if (!(await tgConfirm(l.methods.confirmDelete))) return;
     await learnApi.deleteMethod(entry.id);
     onDeleted();
   };

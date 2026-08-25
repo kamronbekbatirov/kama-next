@@ -10,6 +10,7 @@ import { useTimezone } from "../timezone";
 import { SectionHeader, EmptyState, IconButton } from "../dashboard-ui";
 import { trackerApi } from "./api";
 import type { CheckIn, Goal } from "./types";
+import { tgConfirm, tgAlert, haptic, ensureBotCanWrite } from "@/lib/telegram-webapp";
 
 /** 14 days of dots. A miss is an empty dot, never a cross — see group.tsx. */
 function DotStrip({ days, done }: { days: string[]; done: Set<string> }) {
@@ -59,6 +60,7 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
     setBusy(true);
     const v = value.trim() ? Number(value) : goal.target_value;
     await trackerApi.checkIn(goal.id, today, Number.isFinite(v) && v >= 0 ? v : goal.target_value);
+    haptic.success();
     setValue("");
     setBusy(false);
     load();
@@ -72,11 +74,19 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
     onChanged();
   };
   const setRemind = async (at: string | null) => {
+    // A reminder is a bot message, and a bot cannot open a conversation the
+    // person never started. Asking here means a refusal is visible now, rather
+    // than becoming a reminder that is accepted and then silently discarded.
+    if (at && !(await ensureBotCanWrite())) {
+      await tgAlert(x.remindNeedsChat);
+      return;
+    }
     await trackerApi.setReminder(goal.id, at);
+    haptic.tap();
     onChanged();
   };
   const archive = async () => {
-    if (!confirm(x.archiveConfirm)) return;
+    if (!(await tgConfirm(x.archiveConfirm))) return;
     await trackerApi.archiveGoal(goal.id);
     onChanged();
   };

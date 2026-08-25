@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTelegramBack, useClosingConfirmation, haptic } from "@/lib/telegram-webapp";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,14 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Inside Telegram the header back button is where people reach for "out of
+  // this"; without binding it, the system back gesture closes the whole Mini
+  // App and the half-typed goal goes with it.
+  useTelegramBack(true, onClose);
+  useClosingConfirmation(
+    !!(title.trim() || unit.trim() || target.trim() || cue.trim() || action.trim()),
+  );
+
   const targetNum = Number(target);
   const valid =
     title.trim() !== "" && unit.trim() !== "" &&
@@ -64,6 +73,7 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
     });
     setBusy(false);
     if (res && "error" in res) { setErr(res.error); return; }
+    haptic.success();
     onSaved();
   };
 

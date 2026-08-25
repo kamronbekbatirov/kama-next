@@ -9,6 +9,7 @@ import { translations, type Lang } from "@/lib/i18n";
 import { useLang } from "@/components/providers";
 import { api, jPost, jPatch, jDel } from "./_shared";
 import { SoftCard, Pill, Chip, EmptyState, IconButton } from "./dashboard-ui";
+import { tgConfirm } from "@/lib/telegram-webapp";
 
 type T = typeof translations.en;
 
@@ -528,7 +529,9 @@ function MessageCard({
 
   const act = (action: string) => jPatch("/api/dashboard/inbox", { id: m.id, action }).then(onChange);
   const remove = () => {
-    if (confirm(t.dash.inbox.confirmDelete)) jDel("/api/dashboard/inbox", { id: m.id }).then(onChange);
+    void tgConfirm(t.dash.inbox.confirmDelete).then(ok => {
+      if (ok) jDel("/api/dashboard/inbox", { id: m.id }).then(onChange);
+    });
   };
 
   return (
@@ -657,7 +660,9 @@ function MessageCard({
 function SentCard({ s, t, onChange }: { s: Sent; t: T; onChange: () => void }) {
   const [open, setOpen] = useState(false);
   const remove = () => {
-    if (confirm(t.dash.inbox.confirmDelete)) jDel("/api/dashboard/inbox/sent", { id: s.id }).then(onChange);
+    void tgConfirm(t.dash.inbox.confirmDelete).then(ok => {
+      if (ok) jDel("/api/dashboard/inbox/sent", { id: s.id }).then(onChange);
+    });
   };
   return (
     <SoftCard className="px-4 py-3">

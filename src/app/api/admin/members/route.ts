@@ -43,10 +43,19 @@ export async function POST(req: Request) {
     // message, so hand the URL back for the owner to pass along.
     let delivered = false;
     if (telegramId) {
+      // A `web_app` inline button opens the Mini App natively — inside Telegram
+      // a bare https link goes to the in-app browser instead, which is a
+      // separate webview with no initData, no theme sync and its own cookie
+      // jar. The token rides in the button rather than the message body so a
+      // forwarded message does not carry it.
       const res = await tgSendMessage(
         telegramId,
-        `Тебя пригласили в общий трекер целей.\n\nСсылка одноразовая и живёт 72 часа:\n${url}`,
-        { link_preview_options: { is_disabled: true } },
+        "Тебя пригласили в общий трекер целей.\n\n" +
+        "Нажми кнопку ниже — откроется трекер. Приглашение одноразовое и живёт 72 часа.",
+        {
+          link_preview_options: { is_disabled: true },
+          reply_markup: { inline_keyboard: [[{ text: "Открыть трекер", web_app: { url } }]] },
+        },
       ).catch(() => ({ ok: false }));
       delivered = !!res.ok;
     }

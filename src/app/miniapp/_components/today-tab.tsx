@@ -16,6 +16,7 @@ import { SectionHeader, Pill, IconButton } from "./dashboard-ui";
 import { ScheduleIcon } from "./schedule-icon";
 import { useTimezone, clockParts, dateLabel } from "./timezone";
 import { SCHEDULE_ICON_KEYS, DEFAULT_ICON_KEY } from "@/lib/schedule-icons";
+import { tgConfirm } from "@/lib/telegram-webapp";
 
 interface ScheduleRow { id: string; start_min: number; end_min: number; label: string; icon: string; position: number; }
 
@@ -177,7 +178,7 @@ export function TodayTab() {
     jPatch("/api/dashboard/habit-defs", { id, label: label.trim() });
   };
   const removeHabit = async (id: string, label: string) => {
-    if (!confirm(d.habitRemoveConfirm.replace("{name}", label))) return;
+    if (!(await tgConfirm(d.habitRemoveConfirm.replace("{name}", label)))) return;
     setHabitDefs(prev => prev.filter(h => h.id !== id));
     await jDel("/api/dashboard/habit-defs", { id });
   };
