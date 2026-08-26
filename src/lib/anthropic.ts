@@ -6,6 +6,7 @@ import { getTimezone, isoDateIn, isoToday } from "@/lib/timezone";
 import { prayersForDay } from "@/lib/prayer-times";
 import { TRACKER_TOOL_DEFINITIONS, TRACKER_TOOL_NAMES, executeTrackerTool, type GuestContext } from "@/lib/tracker-tools";
 import { MEMBER_TOOL_DEFINITIONS, MEMBER_TOOL_NAMES, executeMemberTool } from "@/lib/member-tools";
+import { REMINDER_TOOL_DEFINITIONS, REMINDER_TOOL_NAMES, executeReminderTool } from "@/lib/reminder-tools";
 import { listGoals, getBoard, getWeek } from "@/lib/tracker";
 import type { Member } from "@/lib/members";
 
@@ -491,6 +492,8 @@ const SYSTEM_INSTRUCTIONS = `You are Kamronbek's personal assistant living insid
 
 You also have TOOLS to MODIFY anything in his dashboard. Use them whenever he asks you to add, change, complete, or delete something — don't ask for permission for routine changes. After running a tool, briefly confirm in plain language what you did. For destructive operations on substantial data (deleting whole subjects/trees, deleting many applications), confirm first if intent is ambiguous.
 
+You can set reminders for him with create_reminder — any time, any weekday pattern, or a single date — and list or remove them. Use it whenever he asks to be reminded of something.
+
 You also run the shared goal tracker that lives inside his Tasks tab: his own goals and check-ins, the group board everyone sees, and the guest list. His goals there work like anyone else's — list_my_goals, create_goal, update_goal, check_in, set_reminder, archive_goal, goal_history — and group_summary shows how everyone is doing. list_members / invite_member / revoke_member manage who has access; an invite comes back as a one-time link to hand over.
 
 A tracker goal cannot exist without a measurable target and an if-then plan ("when <situation>, then <action>") — that is enforced by the database, so gather both before calling create_goal. Never frame a missed day as a failure or talk about broken streaks.
@@ -521,6 +524,8 @@ Behaviour:
 His current data:`;
 
 const GUEST_SYSTEM_INSTRUCTIONS = `You are the assistant for a small shared goal tracker. The person you are talking to is one member of a group who agreed to track their goals where the others can see them.
+
+You can also set reminders for them with create_reminder — any time, any weekday pattern, or a single date — whenever they ask to be reminded of something.
 
 You can see and change ONLY this person's own goals and check-ins, plus the group's shared board. You have no access to anything else — if they ask about a journal, budget, server, inbox, notes or anyone's private data, say plainly that you only handle the tracker.
 
@@ -639,9 +644,12 @@ export async function runChat(
   userMessage: UserMessageInput,
   audience: ChatAudience,
 ): Promise<ChatResult> {
+  // Reminders go to both audiences: member_id comes from the session, never
+  // from the model, so a guest can only ever address their own.
   const tools = audience.kind === "owner"
-    ? [...TOOL_DEFINITIONS, ...TRACKER_TOOL_DEFINITIONS, ...MEMBER_TOOL_DEFINITIONS]
-    : TRACKER_TOOL_DEFINITIONS;
+    ? [...TOOL_DEFINITIONS, ...TRACKER_TOOL_DEFINITIONS, ...MEMBER_TOOL_DEFINITIONS,
+       ...REMINDER_TOOL_DEFINITIONS]
+    : [...TRACKER_TOOL_DEFINITIONS, ...REMINDER_TOOL_DEFINITIONS];
   // Cache the tool list + the invariant instructions. The breakpoint sits at the
   // end of the stable block, and everything the API hashes before it (tools,
   // then this text) is reused across turns. README claimed this was on; it was
@@ -700,7 +708,9 @@ export async function runChat(
       let isError = false;
       try {
         const args = block.input as Record<string, unknown>;
-        if (audience.kind === "guest") {
+        if (REMINDER_TOOL_NAMES.has(block.name)) {
+          resultText = await executeReminderTool(block.name, args, audience.ctx);
+        } else if (audience.kind === "guest") {
           // One dispatcher, one default branch. Nothing here can reach the
           // owner's tools even if a name collides.
           resultText = await executeTrackerTool(block.name, args, audience.ctx);
