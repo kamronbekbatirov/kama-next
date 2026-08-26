@@ -1,56 +1,90 @@
 "use client";
 
-import { useState } from "react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useCallback, useEffect, useState } from "react";
+import { ArchiveRestore, ChevronDown, ChevronRight } from "lucide-react";
+import { Card } from "@/components/ui/card";
 import { useLang } from "@/components/providers";
-import { useHashView } from "../_shared";
 import { GroupPane } from "./group";
 import { MinePane } from "./mine";
 import { GoalForm } from "./goal-form";
+import { trackerApi } from "./api";
+import type { Goal } from "./types";
 
-/** The tracker, used by both shells: the guest's own page and the owner's
- *  sub-tab inside Tasks. */
-export function TrackerTab({ hashKey = null, meId = null }: {
-  /**
-   * Which hash segment owns this pane, or null to keep the state local.
-   *
-   * The URL hash has exactly two segments (`#tab/sub`), so when the tracker is
-   * nested inside the owner's Tasks tab both would fight over the same one —
-   * Tasks writing `#tasks/tracker` and the tracker immediately overwriting it
-   * with `#tasks/group`. Nested usage therefore passes null.
-   */
-  hashKey?: string | null;
-  meId?: string | null;
-}) {
-  const hashed = useHashView(hashKey ?? "tracker", ["group", "mine"], "group");
-  const local = useState<string>("group");
-  const [view, setView] = hashKey ? hashed : local;
+/**
+ * The tracker, used by both shells: the guest's own page and the owner's
+ * sub-tab inside Tasks.
+ *
+ * One page, no sub-tabs. Your own goals come first because they are the only
+ * thing here you act on, and the group sits directly underneath because seeing
+ * it is the mechanism the whole feature rests on — a tab you have to choose is
+ * a tab you stop choosing.
+ */
+export function TrackerTab({ meId = null }: { meId?: string | null }) {
   const { t } = useLang();
   const x = t.dash.tracker;
   const [forming, setForming] = useState(false);
   const [reload, setReload] = useState(0);
-  const bump = () => setReload(n => n + 1);
+  const bump = useCallback(() => setReload(n => n + 1), []);
+
+  const [archived, setArchived] = useState<Goal[]>([]);
+  const [showArchive, setShowArchive] = useState(false);
+
+  useEffect(() => {
+    trackerApi.listArchived()
+      .then(r => { if (Array.isArray(r)) setArchived(r); })
+      .catch(() => {});
+  }, [reload]);
+
+  const restore = async (id: number) => {
+    await trackerApi.restoreGoal(id);
+    bump();
+  };
 
   return (
-    <div className="flex flex-col gap-4 pt-2 animate-fade-in">
-      <Tabs value={view} onValueChange={setView}>
-        <TabsList className="self-start">
-          <TabsTrigger value="group">{x.tabs.group}</TabsTrigger>
-          <TabsTrigger value="mine">{x.tabs.mine}</TabsTrigger>
-        </TabsList>
+    <div className="flex flex-col gap-5 pt-2 animate-fade-in">
+      <MinePane onNew={() => setForming(true)} reloadKey={reload} onChanged={bump} />
 
-        <TabsContent value="group">
-          <GroupPane key={reload} meId={meId} />
-        </TabsContent>
-        <TabsContent value="mine">
-          <MinePane onNew={() => setForming(true)} reloadKey={reload} onChanged={bump} />
-        </TabsContent>
-      </Tabs>
+      <GroupPane key={reload} meId={meId} />
+
+      {/* Archiving used to be a one-way door: the goal left every list and
+          there was no route back to it. */}
+      {archived.length > 0 && (
+        <section>
+          <button
+            onClick={() => setShowArchive(v => !v)}
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+          >
+            {showArchive ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {x.archiveShow.replace("{n}", String(archived.length))}
+          </button>
+
+          {showArchive && (
+            <Card className="p-2 mt-2">
+              <div className="flex flex-col gap-0.5">
+                {archived.map(g => (
+                  <div key={g.id} className="flex items-center gap-3 py-2 px-2 rounded-xl">
+                    <span className="text-sm flex-1 min-w-0 truncate text-[var(--muted)]">{g.title}</span>
+                    <span className="text-[10px] tabular-nums text-[var(--muted)] shrink-0">
+                      {g.target_value} {g.metric_unit}
+                    </span>
+                    <button
+                      onClick={() => void restore(g.id)}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer shrink-0"
+                    >
+                      <ArchiveRestore className="h-3.5 w-3.5" /> {x.restore}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </section>
+      )}
 
       {forming && (
         <GoalForm
           onClose={() => setForming(false)}
-          onSaved={() => { setForming(false); bump(); setView("mine"); }}
+          onSaved={() => { setForming(false); bump(); }}
         />
       )}
     </div>

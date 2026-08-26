@@ -40,6 +40,7 @@ export interface BoardGoal {
   avatar_color: number;
   steps_total: number;
   steps_done: number;
+  steps: { title: string; done: boolean }[];
 }
 
 export interface WeekRow {

@@ -545,6 +545,10 @@ export const translations = {
         stepsHint: "Optional. For a goal with a destination — the daily count is what you do, the steps are how far you have come.",
         stepRemoveConfirm: "Remove the step \"{name}\"?",
         stepsOf: "{done}/{total} steps",
+        archive_: "Archive",
+        archiveEmpty: "Nothing archived.",
+        restore: "Restore",
+        archiveShow: "Archive ({n})",
       },
       settingsModal: {
         title: "Settings",
@@ -1342,6 +1346,10 @@ export const translations = {
         stepsHint: "Необязательно. Для цели, у которой есть финиш: счёт по дням — это что ты делаешь, шаги — сколько прошёл.",
         stepRemoveConfirm: "Убрать шаг «{name}»?",
         stepsOf: "{done}/{total} шагов",
+        archive_: "Архив",
+        archiveEmpty: "В архиве пусто.",
+        restore: "Вернуть",
+        archiveShow: "Архив ({n})",
       },
       settingsModal: {
         title: "Настройки",
@@ -2139,6 +2147,10 @@ export const translations = {
         stepsHint: "Ихтиёрий. Якуни бор мақсад учун: кунлик ҳисоб — нима қилаётганингиз, қадамлар — қанча юрганингиз.",
         stepRemoveConfirm: "«{name}» қадами олиб ташлансинми?",
         stepsOf: "{done}/{total} қадам",
+        archive_: "Архив",
+        archiveEmpty: "Архив бўш.",
+        restore: "Қайтариш",
+        archiveShow: "Архив ({n})",
       },
       settingsModal: {
         title: "Созламалар",

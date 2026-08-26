@@ -1,7 +1,7 @@
 import { requireMember, UNAUTHORIZED } from "@/lib/guard";
 import { isoDateIn, getTimezone } from "@/lib/timezone";
 import {
-  listGoals, createGoal, updateGoal, archiveGoal, validateGoal, setReminder, type NewGoal,
+  listGoals, createGoal, updateGoal, archiveGoal, restoreGoal, validateGoal, setReminder, type NewGoal,
 } from "@/lib/tracker";
 
 export const dynamic = "force-dynamic";
@@ -9,10 +9,11 @@ export const dynamic = "force-dynamic";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Everything here is scoped to the calling member — see src/lib/tracker.ts. */
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const s = await requireMember();
-    return Response.json(await listGoals(s.memberId));
+    const archived = new URL(req.url).searchParams.get("archived") === "1";
+    return Response.json(await listGoals(s.memberId, archived));
   } catch {
     return UNAUTHORIZED();
   }
@@ -61,6 +62,11 @@ export async function PATCH(req: Request) {
     // A reminder is set on its own endpoint-shaped field rather than folded
     // into the generic patch, because clearing it means writing NULL and
     // COALESCE cannot express that.
+    if (b.restore === true) {
+      const ok = await restoreGoal(s.memberId, id);
+      return ok ? Response.json({ ok: true }) : Response.json({ error: "not_found" }, { status: 404 });
+    }
+
     if ("remind_at" in b) {
       const at = typeof b.remind_at === "string" && /^\d{2}:\d{2}$/.test(b.remind_at) ? b.remind_at : null;
       const days = Array.isArray(b.remind_days)

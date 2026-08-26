@@ -45,13 +45,29 @@ const GOAL_COLS = `id, member_id, title, metric_unit, target_value::float AS tar
 
 // ─── Goals ───────────────────────────────────────────────────────────────────
 
-export async function listGoals(memberId: string): Promise<Goal[]> {
+export async function listGoals(memberId: string, archived = false): Promise<Goal[]> {
   return query<Goal>(
     `SELECT ${GOAL_COLS} FROM tracker_goals
-      WHERE member_id = $1 AND status <> 'archived'
+      WHERE member_id = $1 AND status ${archived ? "=" : "<>"} 'archived'
       ORDER BY created_at ASC`,
     [memberId],
   );
+}
+
+/**
+ * Bring an archived goal back.
+ *
+ * Archiving was a one-way door: the goal vanished from every list and there was
+ * no path to it. Its check-ins were never deleted, so there was nothing to
+ * recover — only nowhere to recover it from.
+ */
+export async function restoreGoal(memberId: string, id: number): Promise<boolean> {
+  const rows = await query<{ id: number }>(
+    `UPDATE tracker_goals SET status = 'active', updated_at = NOW()
+      WHERE id = $1 AND member_id = $2 AND status = 'archived' RETURNING id`,
+    [id, memberId],
+  );
+  return rows.length > 0;
 }
 
 export interface NewGoal {
@@ -238,6 +254,7 @@ export interface BoardGoal {
   avatar_color: number;
   steps_total: number;
   steps_done: number;
+  steps: { title: string; done: boolean }[];
 }
 
 /**
@@ -284,7 +301,14 @@ export async function getBoard(end: string, days = 30): Promise<BoardGoal[]> {
             -- multiply the check-in rows and quietly inflate every day count.
             (SELECT COUNT(*) FROM tracker_goal_steps st WHERE st.goal_id = g.id)::int AS steps_total,
             (SELECT COUNT(*) FROM tracker_goal_steps st
-              WHERE st.goal_id = g.id AND st.done_at IS NOT NULL)::int                AS steps_done
+              WHERE st.goal_id = g.id AND st.done_at IS NOT NULL)::int                AS steps_done,
+            -- The steps themselves, not just the count: the board is what the
+            -- group actually looks at, and "1/3" says nothing about what the
+            -- three are.
+            COALESCE((SELECT json_agg(json_build_object('title', st.title,
+                                                        'done', st.done_at IS NOT NULL)
+                                      ORDER BY st.position, st.id)
+                        FROM tracker_goal_steps st WHERE st.goal_id = g.id), '[]'::json) AS steps
        FROM tracker_goals g
        JOIN members m ON m.id = g.member_id AND m.revoked_at IS NULL
        LEFT JOIN win w        ON w.goal_id = g.id

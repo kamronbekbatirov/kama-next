@@ -747,19 +747,6 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
     },
   },
-  {
-    name: "link_todo_to_goal",
-    description:
-      "Point a task at the tracker goal that feeds it, or pass goal_id 0 to unlink. Use this for a project whose progress comes from a daily habit — 'get back in shape' fed by 'push-ups every day'. Do NOT use it to break a task into steps: a habit has no steps, and a project measured in days-done is meaningless.",
-    input_schema: {
-      type: "object",
-      properties: {
-        todo_id: { type: "integer" },
-        goal_id: { type: "integer", description: "A goal of his own, or 0 to unlink." },
-      },
-      required: ["todo_id", "goal_id"],
-    },
-  },
 ];
 
 // ─── EXECUTOR ────────────────────────────────────────────────────────────────
@@ -1617,25 +1604,6 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       const order = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"] as const;
       return `${date} (${day.tz}, ${day.lat.toFixed(3)}/${day.lon.toFixed(3)}):\n` +
         order.map(k => `${k}: ${day.times[k].hhmm}`).join("\n");
-    }
-
-    case "link_todo_to_goal": {
-      const todoId = asInt(input.todo_id);
-      const goalId = asInt(input.goal_id) ?? 0;
-      if (!todoId) return "Error: todo_id required";
-      if (goalId <= 0) {
-        await query("UPDATE todos SET tracker_goal_id = NULL WHERE id = $1", [todoId]);
-        return `Task #${todoId} is no longer linked to a goal.`;
-      }
-      const owned = await query<{ title: string }>(
-        `SELECT g.title FROM tracker_goals g
-           JOIN members m ON m.id = g.member_id AND m.role = 'owner'
-          WHERE g.id = $1 AND g.status = 'active'`,
-        [goalId],
-      );
-      if (owned.length === 0) return `Error: no active goal #${goalId} of yours`;
-      await query("UPDATE todos SET tracker_goal_id = $2 WHERE id = $1", [todoId, goalId]);
-      return `Task #${todoId} is now fed by "${owned[0].title}".`;
     }
 
     default:

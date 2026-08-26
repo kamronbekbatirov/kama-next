@@ -14,6 +14,9 @@ function json(method: string, body?: unknown): RequestInit {
 
 export const trackerApi = {
   listGoals: () => jfetch<Goal[]>("/api/tracker/goals"),
+  listArchived: () => jfetch<Goal[]>("/api/tracker/goals?archived=1"),
+  restoreGoal: (id: number) =>
+    jfetch<{ ok: true } | { error: string }>("/api/tracker/goals", json("PATCH", { id, restore: true })),
 
   createGoal: (g: {
     title: string; metric_unit: string; target_value: number;

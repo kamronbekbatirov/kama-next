@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Users } from "lucide-react";
+import { Check, Users } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useLang } from "@/components/providers";
@@ -97,12 +97,38 @@ export function GroupPane({ meId }: { meId: string | null }) {
                 </div>
                 <div className="text-[10px] text-[var(--muted)] mt-1.5 tabular-nums">
                   {g.days_done_30} · {x.last30} · {g.target_value} {g.metric_unit}
-                  {g.steps_total > 0 && (
-                    <> · {x.stepsOf
-                      .replace("{done}", String(g.steps_done))
-                      .replace("{total}", String(g.steps_total))}</>
-                  )}
                 </div>
+
+                {/* Read-only here: these are someone else's steps. Seeing what
+                    the others are actually working through is the point of a
+                    shared board — a bare "1/3" says nothing. */}
+                {g.steps_total > 0 && (
+                  <div className="mt-2 pt-2 border-t border-[var(--card-border)]">
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] mb-1">
+                      {x.stepsOf
+                        .replace("{done}", String(g.steps_done))
+                        .replace("{total}", String(g.steps_total))}
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      {g.steps.map((st, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <span className={[
+                            "h-3 w-3 shrink-0 rounded-[4px] border grid place-items-center",
+                            st.done
+                              ? "bg-[var(--foreground)] border-[var(--foreground)] text-[var(--background)]"
+                              : "border-[var(--card-border)]",
+                          ].join(" ")}>
+                            {st.done && <Check className="h-2 w-2" />}
+                          </span>
+                          <span className={[
+                            "text-[11px] truncate",
+                            st.done ? "line-through text-[var(--muted)]" : "",
+                          ].join(" ")}>{st.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </Card>
             ))}
           </div>

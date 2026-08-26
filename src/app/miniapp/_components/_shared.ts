@@ -15,14 +15,6 @@ export interface Todo {
   position: number;
   archived: boolean;
   due_at: string | null;
-  /** The tracker goal this task is fed by, if any, with its momentum. */
-  tracker_goal_id: number | null;
-  goal_title: string | null;
-  goal_unit: string | null;
-  goal_target: number | null;
-  goal_period: string | null;
-  goal_done_7: number | null;
-  goal_done_30: number | null;
 }
 export const TODO_STATUSES: readonly TodoStatus[] = ["todo", "doing", "done"];
 export interface Application { id: number; company: string; role: string; status: string; notes: string | null; }

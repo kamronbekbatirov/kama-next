@@ -68,7 +68,7 @@ export default function TrackerPage() {
         </header>
 
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-5 pb-8">
-          <TrackerTab hashKey="tracker" meId={me.memberId} />
+          <TrackerTab meId={me.memberId} />
         </main>
 
         <SettingsModal open={settings} onClose={() => setSettings(false)} />

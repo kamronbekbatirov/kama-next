@@ -21,26 +21,10 @@ function parseDue(v: unknown): Date | null {
 export async function GET() {
   try {
     await auth();
-    // The linked goal's momentum travels with the task, so a card can show
-    // "this is moving" without the board fetching every goal separately.
     const rows = await query(
-      `SELECT t.id, t.text, t.description, t.category, t.priority, t.done, t.done_at,
-              t.status, t.position, t.archived, t.created_at, t.due_at,
-              t.tracker_goal_id,
-              g.title        AS goal_title,
-              g.metric_unit  AS goal_unit,
-              g.target_value::float AS goal_target,
-              g.period       AS goal_period,
-              COALESCE((SELECT COUNT(*) FROM tracker_checkins c
-                         WHERE c.goal_id = g.id AND c.value > 0
-                           AND c.day > CURRENT_DATE - 7), 0)::int  AS goal_done_7,
-              COALESCE((SELECT COUNT(*) FROM tracker_checkins c
-                         WHERE c.goal_id = g.id AND c.value > 0
-                           AND c.day > CURRENT_DATE - 30), 0)::int AS goal_done_30
-         FROM todos t
-         LEFT JOIN tracker_goals g
-                ON g.id = t.tracker_goal_id AND g.status = 'active'
-        ORDER BY t.status, t.position ASC, t.created_at DESC`
+      `SELECT id, text, description, category, priority, done, done_at, status, position, archived, created_at, due_at
+       FROM todos
+       ORDER BY status, position ASC, created_at DESC`
     );
     return Response.json(rows);
   } catch {
@@ -77,32 +61,6 @@ export async function PATCH(req: Request) {
     await auth();
     const body = await req.json();
     if (!body.id) return Response.json({ error: "id required" }, { status: 400 });
-
-    // Own branch: unlinking means writing NULL, which COALESCE cannot express.
-    // The goal must be the owner's own and still active — a task cannot point
-    // at a guest's goal, and there is no id here that could reach one.
-    if ("tracker_goal_id" in body) {
-      // Explicit null check first: Number(null) is 0 and Number.isInteger(0) is
-      // true, so an unlink would otherwise be read as "link to goal #0" and
-      // rejected as someone else's goal.
-      const raw = body.tracker_goal_id;
-      const goalId = raw === null || raw === undefined || raw === "" ? NaN : Number(raw);
-      if (!Number.isInteger(goalId) || goalId <= 0) {
-        await query("UPDATE todos SET tracker_goal_id = NULL WHERE id = $1", [body.id]);
-        return Response.json({ ok: true, tracker_goal_id: null });
-      }
-      const owned = await query<{ id: number }>(
-        `SELECT g.id FROM tracker_goals g
-           JOIN members m ON m.id = g.member_id AND m.role = 'owner'
-          WHERE g.id = $1 AND g.status = 'active'`,
-        [goalId],
-      );
-      if (owned.length === 0) {
-        return Response.json({ error: "no such goal of yours" }, { status: 400 });
-      }
-      await query("UPDATE todos SET tracker_goal_id = $2 WHERE id = $1", [body.id, goalId]);
-      return Response.json({ ok: true, tracker_goal_id: goalId });
-    }
 
     if (body.archived !== undefined) {
       await query(

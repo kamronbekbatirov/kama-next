@@ -67,7 +67,7 @@ interface DashboardSnapshot {
   prayersToday: Record<string, boolean>;
   prayerTimes: Record<string, string> | null;
   habitsList: { id: string; label: string; builtin: boolean; done: boolean }[];
-  todos: { id: number; text: string; description: string | null; category: string; priority: string; status: string; created_at: string; due_at: string | null; goal_title: string | null }[];
+  todos: { id: number; text: string; description: string | null; category: string; priority: string; status: string; created_at: string; due_at: string | null }[];
   recentlyCompletedTodos: { id: number; text: string; category: string; done_at: string }[];
   archivedTodos: { id: number; text: string; category: string; priority: string; status: string }[];
   applications: { id: number; company: string; role: string; status: string; notes: string | null }[];
@@ -113,13 +113,10 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     query<{ habit_id: string; done: boolean }>(
       "SELECT habit_id, done FROM habit_custom_completions WHERE date = $1", [dt]
     ),
-    query<{ id: number; text: string; description: string | null; category: string; priority: string; status: string; created_at: string; due_at: string | null; goal_title: string | null }>(
-      `SELECT t.id, t.text, t.description, t.category, t.priority, t.status, t.created_at,
-              t.due_at::text AS due_at, g.title AS goal_title
-         FROM todos t
-         LEFT JOIN tracker_goals g ON g.id = t.tracker_goal_id AND g.status = 'active'
-        WHERE t.archived = FALSE AND t.status <> 'done'
-        ORDER BY t.status, t.position ASC, t.created_at DESC LIMIT 40`
+    query<{ id: number; text: string; description: string | null; category: string; priority: string; status: string; created_at: string; due_at: string | null }>(
+      `SELECT id, text, description, category, priority, status, created_at, due_at::text FROM todos
+       WHERE archived = FALSE AND status <> 'done'
+       ORDER BY status, position ASC, created_at DESC LIMIT 40`
     ),
     query<{ id: number; text: string; category: string; done_at: string }>(
       `SELECT id, text, category, done_at::text AS done_at FROM todos
@@ -285,8 +282,7 @@ ${snap.schedule.length === 0 ? "(empty)" : snap.schedule.map(b =>
       const body = t.description?.trim()
         ? `\n    ${t.description.trim().replace(/\n/g, "\n    ")}`
         : "";
-      const fed = t.goal_title ? ` — fed by tracker goal "${t.goal_title}"` : "";
-      return `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}${due}${fed}${body}`;
+      return `- #${t.id} [${t.priority.toUpperCase()}] [${t.category}] ${t.text}${due}${body}`;
     };
     const blocks: string[] = [`# Active todos (kanban)`];
     if (todoCol.length > 0)  blocks.push(`## To do (${todoCol.length})\n${todoCol.slice(0, 20).map(fmt).join("\n")}`);

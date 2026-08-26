@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { AlignLeft, Archive, ArchiveRestore, Circle, CircleCheckBig, CircleDot, Clock, Columns3, GripVertical, Plus, Rows3, Target, Trash2, X } from "lucide-react";
+import { AlignLeft, Archive, ArchiveRestore, Circle, CircleCheckBig, CircleDot, Clock, Columns3, GripVertical, Plus, Rows3, Trash2, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -774,15 +774,6 @@ function TodoCard({
           {todo.description && (
             <AlignLeft className="h-3 w-3 text-[var(--muted)] shrink-0" aria-label="has description" />
           )}
-          {todo.tracker_goal_id && (
-            <span
-              className="inline-flex items-center gap-1 text-[10px] tabular-nums text-[var(--muted)] shrink-0"
-              title={todo.goal_title ?? ""}
-            >
-              <Target className="h-3 w-3" />
-              {todo.goal_done_7 ?? 0}/7
-            </span>
-          )}
         </div>
       </div>
     </div>
@@ -927,17 +918,6 @@ function EditTodoDialog({
   const [pri, setPri]   = useState("medium");
   const [status, setStatus] = useState<TodoStatus>("todo");
   const [due, setDue]   = useState("");
-  const [goalId, setGoalId] = useState<number | null>(null);
-  const [goals, setGoals] = useState<{ id: number; title: string; metric_unit: string }[]>([]);
-
-  useEffect(() => {
-    // Only loaded while a task is open — most sessions never touch this.
-    if (!todo) return;
-    fetch("/api/tracker/goals").then(r => r.json())
-      .then(g => { if (Array.isArray(g)) setGoals(g); })
-      .catch(() => {});
-  }, [todo]);
-
   useEffect(() => {
     if (todo) {
       setText(todo.text);
@@ -946,7 +926,6 @@ function EditTodoDialog({
       setPri(todo.priority);
       setStatus(todo.status);
       setDue(isoToLocalInput(todo.due_at));
-      setGoalId(todo.tracker_goal_id ?? null);
     }
   }, [todo]);
 
@@ -967,9 +946,6 @@ function EditTodoDialog({
     });
     if (status !== todo.status) {
       await jPatch("/api/dashboard/todos", { id: todo.id, status });
-    }
-    if ((goalId ?? null) !== (todo.tracker_goal_id ?? null)) {
-      await jPatch("/api/dashboard/todos", { id: todo.id, tracker_goal_id: goalId });
     }
     onSaved();
   };
@@ -1004,35 +980,6 @@ function EditTodoDialog({
               ))}
             </div>
           </div>
-          {/* The habit that feeds this task. Not subtasks: a project measured
-              in "days done" is meaningless and a habit has no steps to tick —
-              what was missing is the link, so the project can show it is
-              moving. */}
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">{d.goalLink}</div>
-            {goals.length === 0 ? (
-              <div className="text-[11px] text-[var(--muted)]">{d.goalNone}</div>
-            ) : (
-              <div className="flex gap-1.5 flex-wrap">
-                <Pill size="sm" active={goalId === null} onClick={() => setGoalId(null)}>
-                  {d.goalNone}
-                </Pill>
-                {goals.map(g => (
-                  <Pill key={g.id} size="sm" active={goalId === g.id} onClick={() => setGoalId(g.id)}>
-                    <Target className="h-3 w-3" /> {g.title}
-                  </Pill>
-                ))}
-              </div>
-            )}
-            {todo.tracker_goal_id && todo.goal_done_7 !== null && (
-              <div className="text-[10px] text-[var(--muted)] mt-1.5 tabular-nums">
-                {d.goalMomentum
-                  .replace("{d7}", String(todo.goal_done_7))
-                  .replace("{d30}", String(todo.goal_done_30 ?? 0))}
-              </div>
-            )}
-          </div>
-
           <div>
             <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] font-medium mb-1.5">{d.category}</div>
             <div className="flex gap-1.5 flex-wrap">
