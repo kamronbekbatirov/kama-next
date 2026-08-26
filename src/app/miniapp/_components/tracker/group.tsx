@@ -44,7 +44,8 @@ export function GroupPane({ meId }: { meId: string | null }) {
           <div className="flex flex-col gap-2.5">
             {board.week.map(w => (
               <div key={w.member_id} className="flex items-center gap-2.5">
-                <Avatar memberId={w.member_id} name={w.display_name} hasPhoto={w.has_photo} size={26} />
+                <Avatar memberId={w.member_id} name={w.display_name} hasPhoto={w.has_photo}
+                        colorIndex={w.avatar_color} size={26} />
                 <span className={[
                   "text-xs w-20 shrink-0 truncate",
                   w.member_id === meId ? "font-semibold" : "",
@@ -71,7 +72,8 @@ export function GroupPane({ meId }: { meId: string | null }) {
             {board.goals.map(g => (
               <Card key={g.goal_id} className="p-3">
                 <div className="flex items-center gap-2">
-                  <Avatar memberId={g.member_id} name={g.display_name} hasPhoto={g.has_photo} size={20} />
+                  <Avatar memberId={g.member_id} name={g.display_name} hasPhoto={g.has_photo}
+                    colorIndex={g.avatar_color} size={20} />
                   <span className={[
                     "text-[10px] uppercase tracking-[0.16em] text-[var(--muted)] truncate",
                     g.member_id === meId ? "text-[var(--foreground)] font-semibold" : "",

@@ -235,6 +235,7 @@ export interface BoardGoal {
   current_run: number;
   last_day: string | null;
   has_photo: boolean;
+  avatar_color: number;
 }
 
 /**
@@ -268,7 +269,10 @@ export async function getBoard(end: string, days = 30): Promise<BoardGoal[]> {
         GROUP BY goal_id
      )
      SELECT g.id AS goal_id, g.member_id, m.display_name,
-            (m.photo_file_id IS NOT NULL) AS has_photo, g.title, g.metric_unit,
+            (m.photo_file_id IS NOT NULL) AS has_photo,
+            CASE WHEN m.telegram_id ~ '^-?[0-9]+$'
+                 THEN abs(m.telegram_id::bigint % 7)::int
+                 ELSE abs(hashtext(m.id) % 7)::int END AS avatar_color, g.title, g.metric_unit,
             g.target_value::float AS target_value, g.period,
             COALESCE(SUM(CASE WHEN w.day > $1::date - 7 THEN 1 ELSE 0 END), 0)::int AS days_done_7,
             COALESCE(COUNT(w.day), 0)::int                                          AS days_done_30,
@@ -279,7 +283,7 @@ export async function getBoard(end: string, days = 30): Promise<BoardGoal[]> {
        LEFT JOIN win w        ON w.goal_id = g.id
        LEFT JOIN current_run cr ON cr.goal_id = g.id
       WHERE g.status = 'active'
-      GROUP BY g.id, g.member_id, m.display_name, m.photo_file_id, g.title,
+      GROUP BY g.id, m.id, g.member_id, g.title,
                g.metric_unit, g.target_value, g.period
       ORDER BY m.display_name, g.created_at`,
     [end, days],
@@ -287,10 +291,13 @@ export async function getBoard(end: string, days = 30): Promise<BoardGoal[]> {
 }
 
 /** "Who did how much this week" — the comparison the first screen leads with. */
-export async function getWeek(end: string): Promise<{ member_id: string; display_name: string; done: number; goals: number; has_photo: boolean }[]> {
+export async function getWeek(end: string): Promise<{ member_id: string; display_name: string; done: number; goals: number; has_photo: boolean; avatar_color: number }[]> {
   return query(
     `SELECT m.id AS member_id, m.display_name,
             (m.photo_file_id IS NOT NULL) AS has_photo,
+            CASE WHEN m.telegram_id ~ '^-?[0-9]+$'
+                 THEN abs(m.telegram_id::bigint % 7)::int
+                 ELSE abs(hashtext(m.id) % 7)::int END AS avatar_color,
             COALESCE(COUNT(DISTINCT (c.goal_id, c.day)) FILTER (WHERE c.value > 0), 0)::int AS done,
             COUNT(DISTINCT g.id)::int AS goals
        FROM members m
@@ -298,7 +305,7 @@ export async function getWeek(end: string): Promise<{ member_id: string; display
        LEFT JOIN tracker_checkins c ON c.goal_id = g.id
             AND c.day > $1::date - 7 AND c.day <= $1::date
       WHERE m.revoked_at IS NULL
-      GROUP BY m.id, m.display_name, m.photo_file_id
+      GROUP BY m.id
       ORDER BY done DESC, m.display_name`,
     [end],
   );
