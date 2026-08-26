@@ -16,6 +16,8 @@ export interface Goal {
   created_at: string;
   remind_at: string | null;
   remind_days: number[] | null;
+  remind_interval: number | null;
+  remind_anchor: string | null;
 }
 
 export interface CheckIn {

@@ -88,6 +88,10 @@ export const TRACKER_TOOL_DEFINITIONS: Anthropic.Tool[] = [
           items: { type: "integer", minimum: 1, maximum: 7 },
           description: "ISO weekdays (1=Mon … 7=Sun). Omit for every day.",
         },
+        every_days: {
+          type: "integer", minimum: 2, maximum: 60,
+          description: "Repeat every N days — 2 for every other day. Cannot be combined with days.",
+        },
       },
       required: ["goal_id"],
     },
@@ -270,11 +274,20 @@ export async function executeTrackerTool(
       const days = Array.isArray(input.days)
         ? (input.days as unknown[]).map(d => asInt(d) ?? 0).filter(n => n >= 1 && n <= 7)
         : null;
-      const ok = await setReminder(ctx.memberId, goalId, at, days && days.length ? days : null);
+      const every = asInt(input.every_days);
+      if (every !== null && (every < 2 || every > 60)) return "Error: every_days must be 2..60";
+      if (every !== null && days?.length) return "Error: pick weekdays or an interval, not both";
+
+      const ok = await setReminder(
+        ctx.memberId, goalId, at, days && days.length ? days : null,
+        at ? every : null, at && every ? today : null,
+      );
       if (!ok) return `Error: no goal #${goalId} of yours`;
-      return at
-        ? `Reminder set for ${at}${days && days.length ? ` on days ${days.join(",")}` : " every day"}.`
-        : "Reminder turned off.";
+      if (!at) return "Reminder turned off.";
+      const when = every ? `every ${every} days from ${today}`
+                 : days?.length ? `on days ${days.join(",")}`
+                 : "every day";
+      return `Reminder set for ${at}, ${when}.`;
     }
 
     case "update_goal": {

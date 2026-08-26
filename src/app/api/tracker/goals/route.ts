@@ -7,6 +7,7 @@ import {
 export const dynamic = "force-dynamic";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}$/;
 
 /** Everything here is scoped to the calling member — see src/lib/tracker.ts. */
 export async function GET(req: Request) {
@@ -68,13 +69,21 @@ export async function PATCH(req: Request) {
     }
 
     if ("remind_at" in b) {
-      const at = typeof b.remind_at === "string" && /^\d{2}:\d{2}$/.test(b.remind_at) ? b.remind_at : null;
+      const at = TIME_RE.test(String(b.remind_at)) ? String(b.remind_at) : null;
       const days = Array.isArray(b.remind_days)
-        ? b.remind_days.map(Number).filter((n: number) => n >= 1 && n <= 7)
+        ? (b.remind_days as unknown[]).map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= 7)
         : null;
-      const done = await setReminder(s.memberId, id, at, days && days.length ? days : null);
-      if (!done) return Response.json({ error: "not_found" }, { status: 404 });
-      return Response.json({ ok: true });
+      const interval = Number.isInteger(b.remind_interval) && Number(b.remind_interval) >= 2
+        ? Math.min(60, Number(b.remind_interval))
+        : null;
+      const anchor = ISO_DATE.test(String(b.remind_anchor))
+        ? String(b.remind_anchor)
+        : isoDateIn(s.tz ?? (await getTimezone()));
+      const ok = await setReminder(
+        s.memberId, id, at, days && days.length ? days : null,
+        at ? interval : null, at ? anchor : null,
+      );
+      return ok ? Response.json({ ok: true }) : Response.json({ error: "not_found" }, { status: 404 });
     }
 
     const ok = await updateGoal(s.memberId, id, {

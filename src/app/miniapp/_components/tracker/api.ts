@@ -27,9 +27,11 @@ export const trackerApi = {
   updateGoal: (id: number, patch: Record<string, unknown>) =>
     jfetch<{ ok: true } | { error: string }>("/api/tracker/goals", json("PATCH", { id, ...patch })),
 
-  setReminder: (id: number, remind_at: string | null, remind_days?: number[]) =>
-    jfetch<{ ok: true } | { error: string }>(
-      "/api/tracker/goals", json("PATCH", { id, remind_at, remind_days })),
+  setReminder: (id: number, patch: {
+    remind_at: string | null; remind_days?: number[] | null;
+    remind_interval?: number | null;
+  }) =>
+    jfetch<{ ok: true } | { error: string }>("/api/tracker/goals", json("PATCH", { id, ...patch })),
 
   steps: (goal_id: number, all = false) =>
     jfetch<{ steps: GoalStep[]; weeks: string[]; week: string | null }>(

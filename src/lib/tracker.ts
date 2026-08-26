@@ -46,7 +46,8 @@ const GOAL_COLS = `id, member_id, title, metric_unit, target_value::float AS tar
   (SELECT COUNT(*) FROM tracker_goal_steps st
     WHERE st.goal_id = tracker_goals.id AND st.done_at IS NOT NULL)::int AS steps_done,
   status, extras, created_at::text AS created_at,
-  to_char(remind_at, 'HH24:MI') AS remind_at, remind_days`;
+  to_char(remind_at, 'HH24:MI') AS remind_at, remind_days,
+  remind_interval, remind_anchor::text AS remind_anchor`;
 
 // ─── Goals ───────────────────────────────────────────────────────────────────
 
@@ -374,7 +375,7 @@ export async function dueReminders(defaultTz: string): Promise<DueReminder[]> {
     `WITH ctx AS (
        SELECT g.id, g.member_id, g.title, g.cue_when, g.action_then,
               g.metric_unit, g.target_value, g.remind_at, g.remind_days,
-              g.reminded_on, m.telegram_id, m.tz,
+              g.remind_interval, g.remind_anchor, g.reminded_on, m.telegram_id, m.tz,
               (NOW() AT TIME ZONE COALESCE(m.tz, $1))::date AS local_date,
               (NOW() AT TIME ZONE COALESCE(m.tz, $1))::time AS local_time
          FROM tracker_goals g
@@ -388,6 +389,8 @@ export async function dueReminders(defaultTz: string): Promise<DueReminder[]> {
         AND (reminded_on IS NULL OR reminded_on < local_date)
         AND (remind_days IS NULL
              OR EXTRACT(ISODOW FROM local_date)::smallint = ANY(remind_days))
+        AND (remind_interval IS NULL
+             OR (local_date - remind_anchor) % remind_interval = 0)
         AND NOT EXISTS (
           SELECT 1 FROM tracker_checkins c
            WHERE c.goal_id = ctx.id AND c.day = ctx.local_date AND c.value > 0
@@ -409,14 +412,20 @@ export async function markReminded(goalId: number, defaultTz: string): Promise<v
 
 export async function setReminder(
   memberId: string, goalId: number, at: string | null, days: number[] | null,
+  interval: number | null = null, anchor: string | null = null,
 ): Promise<boolean> {
+  // Weekdays and an interval are two ways of saying the same thing and would
+  // fight; whichever the caller supplied wins and the other is cleared.
   const rows = await query<{ id: number }>(
     `UPDATE tracker_goals
-        SET remind_at = $3::time, remind_days = $4::smallint[],
+        SET remind_at = $3::time,
+            remind_days = CASE WHEN $5::smallint IS NULL THEN $4::smallint[] ELSE NULL END,
+            remind_interval = $5::smallint,
+            remind_anchor = CASE WHEN $5::smallint IS NULL THEN NULL ELSE $6::date END,
             reminded_on = NULL, updated_at = NOW()
       WHERE id = $1 AND member_id = $2
       RETURNING id`,
-    [goalId, memberId, at, days],
+    [goalId, memberId, at, days, interval, anchor],
   );
   return rows.length > 0;
 }

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useLang } from "@/components/providers";
 import { todayIn, shiftDate } from "../_shared";
 import { useTimezone } from "../timezone";
-import { SectionHeader, EmptyState, IconButton } from "../dashboard-ui";
+import { SectionHeader, EmptyState, IconButton, Pill } from "../dashboard-ui";
 import { trackerApi } from "./api";
 import { GoalSteps } from "./steps";
 import type { CheckIn, Goal } from "./types";
@@ -85,6 +85,8 @@ function GoalCard({ goal, onChanged, onEdit }: { goal: Goal; onChanged: () => vo
   };
   const [checkins, setCheckins] = useState<CheckIn[]>([]);
   const [open, setOpen] = useState(false);
+  const mode: "daily" | "days" | "interval" =
+    goal.remind_interval ? "interval" : goal.remind_days?.length ? "days" : "daily";
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -122,18 +124,21 @@ function GoalCard({ goal, onChanged, onEdit }: { goal: Goal; onChanged: () => vo
     load();
     onChanged();
   };
-  const setRemind = async (at: string | null) => {
+  const setRemind = async (patch: {
+    remind_at: string | null; remind_days?: number[] | null; remind_interval?: number | null;
+  }) => {
     // A reminder is a bot message, and a bot cannot open a conversation the
     // person never started. Asking here means a refusal is visible now, rather
     // than becoming a reminder that is accepted and then silently discarded.
-    if (at && !(await ensureBotCanWrite())) {
+    if (patch.remind_at && !(await ensureBotCanWrite())) {
       await tgAlert(x.remindNeedsChat);
       return;
     }
-    await trackerApi.setReminder(goal.id, at);
+    await trackerApi.setReminder(goal.id, patch);
     haptic.tap();
     onChanged();
   };
+
   const archive = async () => {
     if (!(await tgConfirm(x.archiveConfirm))) return;
     await trackerApi.archiveGoal(goal.id);
@@ -196,22 +201,98 @@ function GoalCard({ goal, onChanged, onEdit }: { goal: Goal; onChanged: () => vo
 
       <GoalSteps goalId={goal.id} onChanged={onChanged} />
 
-      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--card-border)]">
-        <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">{x.remindAt}</span>
-        <input
-          type="time"
-          value={goal.remind_at ?? ""}
-          onChange={e => { void setRemind(e.target.value || null); }}
-          className="h-8 px-2 rounded-lg bg-[var(--muted-bg)] border border-[var(--input-border)] text-xs tabular-nums"
-          aria-label={x.remindAt}
-        />
+      <div className="mt-3 pt-3 border-t border-[var(--card-border)]">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">{x.remindAt}</span>
+          <input
+            type="time"
+            value={goal.remind_at ?? ""}
+            onChange={e => { void setRemind({ remind_at: e.target.value || null }); }}
+            className="h-8 px-2 rounded-lg bg-[var(--muted-bg)] border border-[var(--input-border)] text-xs tabular-nums"
+            aria-label={x.remindAt}
+          />
+          {goal.remind_at && (
+            <button
+              onClick={() => { void setRemind({ remind_at: null }); }}
+              className="ml-auto text-[10px] text-[var(--muted)] hover:text-[var(--foreground)] underline underline-offset-4 cursor-pointer"
+            >
+              {x.remindOff}
+            </button>
+          )}
+        </div>
+
+        {/* The pattern only exists once there is a time to hang it on. */}
         {goal.remind_at && (
-          <button
-            onClick={() => { void setRemind(null); }}
-            className="text-[10px] text-[var(--muted)] hover:text-[var(--foreground)] underline underline-offset-4 cursor-pointer"
-          >
-            {x.remindOff}
-          </button>
+          <div className="mt-2 flex flex-col gap-1.5">
+            <div className="flex gap-1.5 flex-wrap">
+              <Pill size="sm" active={mode === "daily"}
+                    onClick={() => void setRemind({ remind_at: goal.remind_at, remind_days: null, remind_interval: null })}>
+                {x.remindDaily}
+              </Pill>
+              <Pill size="sm" active={mode === "days"}
+                    onClick={() => void setRemind({ remind_at: goal.remind_at, remind_days: [1,2,3,4,5], remind_interval: null })}>
+                {x.remindDays}
+              </Pill>
+              <Pill size="sm" active={mode === "interval"}
+                    onClick={() => void setRemind({ remind_at: goal.remind_at, remind_days: null, remind_interval: 2 })}>
+                {x.remindInterval}
+              </Pill>
+            </div>
+
+            {mode === "days" && (
+              <div className="flex gap-1">
+                {x.dayShort.map((label, i) => {
+                  const day = i + 1;
+                  const on = goal.remind_days?.includes(day) ?? false;
+                  return (
+                    <button
+                      key={day}
+                      onClick={() => {
+                        const next = on
+                          ? (goal.remind_days ?? []).filter(d => d !== day)
+                          : [...(goal.remind_days ?? []), day];
+                        // An empty selection would mean "never" while looking
+                        // like "by weekday"; falling back to every day is the
+                        // honest reading.
+                        void setRemind({
+                          remind_at: goal.remind_at,
+                          remind_days: next.length ? next.sort((a, b) => a - b) : null,
+                          remind_interval: null,
+                        });
+                      }}
+                      className={[
+                        "h-7 flex-1 rounded-lg text-[10px] font-medium transition-all cursor-pointer border",
+                        on
+                          ? "bg-[var(--foreground)] text-[var(--background)] border-[var(--foreground)]"
+                          : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--foreground)]/30",
+                      ].join(" ")}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {mode === "interval" && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" min={2} max={60}
+                  value={goal.remind_interval ?? 2}
+                  onChange={e => {
+                    const n = Number(e.target.value);
+                    if (n >= 2 && n <= 60) {
+                      void setRemind({ remind_at: goal.remind_at, remind_days: null, remind_interval: n });
+                    }
+                  }}
+                  className="h-8 w-16 px-2 rounded-lg bg-[var(--muted-bg)] border border-[var(--input-border)] text-xs tabular-nums"
+                />
+                <span className="text-[10px] text-[var(--muted)]">
+                  {x.remindEvery.replace("{n}", String(goal.remind_interval ?? 2))}
+                </span>
+              </div>
+            )}
+          </div>
         )}
       </div>
       <div className="text-[10px] text-[var(--muted)] mt-1 leading-snug">{x.remindHint}</div>
