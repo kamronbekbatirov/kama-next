@@ -9,6 +9,7 @@ import { todayIn, shiftDate } from "../_shared";
 import { useTimezone } from "../timezone";
 import { SectionHeader, EmptyState, IconButton } from "../dashboard-ui";
 import { trackerApi } from "./api";
+import { GoalSteps } from "./steps";
 import type { CheckIn, Goal } from "./types";
 import { tgConfirm, tgAlert, haptic, ensureBotCanWrite } from "@/lib/telegram-webapp";
 
@@ -126,6 +127,8 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
       )}
 
       <DotStrip days={days} done={done} />
+
+      <GoalSteps goalId={goal.id} onChanged={onChanged} />
 
       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--card-border)]">
         <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">{x.remindAt}</span>

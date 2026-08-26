@@ -1,4 +1,4 @@
-import type { Board, CheckIn, Goal } from "./types";
+import type { Board, CheckIn, Goal, GoalStep } from "./types";
 
 async function jfetch<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, opts);
@@ -27,6 +27,15 @@ export const trackerApi = {
   setReminder: (id: number, remind_at: string | null, remind_days?: number[]) =>
     jfetch<{ ok: true } | { error: string }>(
       "/api/tracker/goals", json("PATCH", { id, remind_at, remind_days })),
+
+  steps: (goal_id: number) =>
+    jfetch<GoalStep[]>(`/api/tracker/steps?goal_id=${goal_id}`),
+  addStep: (goal_id: number, title: string) =>
+    jfetch<GoalStep | { error: string }>("/api/tracker/steps", json("POST", { goal_id, title })),
+  setStepDone: (id: number, done: boolean) =>
+    jfetch<GoalStep | { error: string }>("/api/tracker/steps", json("PATCH", { id, done })),
+  removeStep: (id: number) =>
+    jfetch<{ ok: boolean }>("/api/tracker/steps", json("DELETE", { id })),
 
   archiveGoal: (id: number) =>
     jfetch<{ ok: true } | { error: string }>("/api/tracker/goals", json("DELETE", { id })),

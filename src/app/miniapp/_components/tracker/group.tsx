@@ -97,6 +97,11 @@ export function GroupPane({ meId }: { meId: string | null }) {
                 </div>
                 <div className="text-[10px] text-[var(--muted)] mt-1.5 tabular-nums">
                   {g.days_done_30} · {x.last30} · {g.target_value} {g.metric_unit}
+                  {g.steps_total > 0 && (
+                    <> · {x.stepsOf
+                      .replace("{done}", String(g.steps_done))
+                      .replace("{total}", String(g.steps_total))}</>
+                  )}
                 </div>
               </Card>
             ))}

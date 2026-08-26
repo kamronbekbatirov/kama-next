@@ -38,6 +38,8 @@ export interface BoardGoal {
   last_day: string | null;
   has_photo: boolean;
   avatar_color: number;
+  steps_total: number;
+  steps_done: number;
 }
 
 export interface WeekRow {
@@ -54,4 +56,12 @@ export interface Board {
   days: number;
   goals: BoardGoal[];
   week: WeekRow[];
+}
+
+export interface GoalStep {
+  id: number;
+  goal_id: number;
+  title: string;
+  position: number;
+  done_at: string | null;
 }

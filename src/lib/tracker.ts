@@ -236,6 +236,8 @@ export interface BoardGoal {
   last_day: string | null;
   has_photo: boolean;
   avatar_color: number;
+  steps_total: number;
+  steps_done: number;
 }
 
 /**
@@ -277,7 +279,12 @@ export async function getBoard(end: string, days = 30): Promise<BoardGoal[]> {
             COALESCE(SUM(CASE WHEN w.day > $1::date - 7 THEN 1 ELSE 0 END), 0)::int AS days_done_7,
             COALESCE(COUNT(w.day), 0)::int                                          AS days_done_30,
             COALESCE(MAX(cr.len), 0)::int                                           AS current_run,
-            MAX(w.day)::text                                                        AS last_day
+            MAX(w.day)::text                                                        AS last_day,
+            -- Sub-selects rather than another join: a second LEFT JOIN would
+            -- multiply the check-in rows and quietly inflate every day count.
+            (SELECT COUNT(*) FROM tracker_goal_steps st WHERE st.goal_id = g.id)::int AS steps_total,
+            (SELECT COUNT(*) FROM tracker_goal_steps st
+              WHERE st.goal_id = g.id AND st.done_at IS NOT NULL)::int                AS steps_done
        FROM tracker_goals g
        JOIN members m ON m.id = g.member_id AND m.revoked_at IS NULL
        LEFT JOIN win w        ON w.goal_id = g.id
@@ -381,6 +388,74 @@ export async function setReminder(
       WHERE id = $1 AND member_id = $2
       RETURNING id`,
     [goalId, memberId, at, days],
+  );
+  return rows.length > 0;
+}
+
+/* ── Steps ──────────────────────────────────────────────────────────────
+ *
+ * Optional milestones on a goal. Everything below scopes by member_id, so a
+ * step can only ever be read or written by the person whose goal it hangs on —
+ * the goal id alone is never enough.
+ */
+
+export interface GoalStep {
+  id: number;
+  goal_id: number;
+  title: string;
+  position: number;
+  done_at: string | null;
+}
+
+const STEP_COLS = "id, goal_id, title, position, done_at::text AS done_at";
+
+export async function listSteps(memberId: string, goalId: number): Promise<GoalStep[]> {
+  return query<GoalStep>(
+    `SELECT ${STEP_COLS} FROM tracker_goal_steps
+      WHERE goal_id = $1 AND member_id = $2
+      ORDER BY position, id`,
+    [goalId, memberId],
+  );
+}
+
+export async function addStep(
+  memberId: string, goalId: number, title: string,
+): Promise<GoalStep | null> {
+  // The goal must be the caller's; without this check any goal id would do.
+  const owned = await query<{ id: number }>(
+    "SELECT id FROM tracker_goals WHERE id = $1 AND member_id = $2",
+    [goalId, memberId],
+  );
+  if (owned.length === 0) return null;
+
+  const rows = await query<GoalStep>(
+    `INSERT INTO tracker_goal_steps (goal_id, member_id, title, position)
+     VALUES ($1, $2, $3,
+             COALESCE((SELECT MAX(position) + 1 FROM tracker_goal_steps WHERE goal_id = $1), 0))
+     RETURNING ${STEP_COLS}`,
+    [goalId, memberId, title.trim().slice(0, 300)],
+  );
+  return rows[0];
+}
+
+/** Toggle or set a step's done state. Returns null when it isn't theirs. */
+export async function setStepDone(
+  memberId: string, stepId: number, done: boolean,
+): Promise<GoalStep | null> {
+  const rows = await query<GoalStep>(
+    `UPDATE tracker_goal_steps
+        SET done_at = CASE WHEN $3 THEN COALESCE(done_at, NOW()) ELSE NULL END
+      WHERE id = $1 AND member_id = $2
+      RETURNING ${STEP_COLS}`,
+    [stepId, memberId, done],
+  );
+  return rows[0] ?? null;
+}
+
+export async function removeStep(memberId: string, stepId: number): Promise<boolean> {
+  const rows = await query<{ id: number }>(
+    "DELETE FROM tracker_goal_steps WHERE id = $1 AND member_id = $2 RETURNING id",
+    [stepId, memberId],
   );
   return rows.length > 0;
 }

@@ -1,7 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   listGoals, createGoal, updateGoal, archiveGoal, checkIn, removeCheckIn,
-  getBoard, getWeek, goalCheckIns, validateGoal, setReminder, type NewGoal,
+  getBoard, getWeek, goalCheckIns, validateGoal, setReminder,
+  listSteps, addStep, setStepDone, removeStep, type NewGoal,
 } from "@/lib/tracker";
 import { isoDateIn } from "@/lib/timezone";
 
@@ -134,6 +135,49 @@ export const TRACKER_TOOL_DEFINITIONS: Anthropic.Tool[] = [
         to: { type: "string", description: "ISO date YYYY-MM-DD. Default today." },
       },
       required: ["goal_id"],
+    },
+  },
+  {
+    name: "add_step",
+    description:
+      "Add a milestone to one of their goals. Steps are OPTIONAL and only for a goal with a destination — 'English to B2' has steps, 'read 20 pages a day' does not. Never break a daily habit into steps; the daily count already measures it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        goal_id: { type: "integer" },
+        title: { type: "string", description: "One milestone, in their words." },
+      },
+      required: ["goal_id", "title"],
+    },
+  },
+  {
+    name: "complete_step",
+    description: "Tick a step off, or untick it with done=false. This is not a check-in — a check-in is the daily behaviour, a step is distance covered.",
+    input_schema: {
+      type: "object",
+      properties: {
+        step_id: { type: "integer" },
+        done: { type: "boolean", description: "Defaults to true." },
+      },
+      required: ["step_id"],
+    },
+  },
+  {
+    name: "list_steps",
+    description: "The steps on one of their goals, with the ids needed to tick or remove them.",
+    input_schema: {
+      type: "object",
+      properties: { goal_id: { type: "integer" } },
+      required: ["goal_id"],
+    },
+  },
+  {
+    name: "remove_step",
+    description: "Delete a step from one of their goals.",
+    input_schema: {
+      type: "object",
+      properties: { step_id: { type: "integer" } },
+      required: ["step_id"],
     },
   },
   {
@@ -284,6 +328,41 @@ export async function executeTrackerTool(
       if (rows.length === 0) return `No days logged between ${from} and ${to}.`;
       return `${rows.length} day(s) logged between ${from} and ${to}:\n` +
         rows.map(r => `${r.day}: ${r.value}${r.note ? ` (${r.note})` : ""}`).join("\n");
+    }
+
+    case "add_step": {
+      const goalId = asInt(input.goal_id);
+      const title = asStr(input.title);
+      if (!goalId) return "Error: goal_id required";
+      if (!title) return "Error: title required";
+      const step = await addStep(ctx.memberId, goalId, title);
+      return step
+        ? `Step #${step.id} added to goal #${goalId}: ${step.title}`
+        : `Error: no goal #${goalId} of yours`;
+    }
+
+    case "complete_step": {
+      const stepId = asInt(input.step_id);
+      if (!stepId) return "Error: step_id required";
+      const done = input.done === undefined ? true : !!input.done;
+      const step = await setStepDone(ctx.memberId, stepId, done);
+      if (!step) return `Error: no step #${stepId} of yours`;
+      return done ? `Step done: ${step.title}` : `Step reopened: ${step.title}`;
+    }
+
+    case "list_steps": {
+      const goalId = asInt(input.goal_id);
+      if (!goalId) return "Error: goal_id required";
+      const steps = await listSteps(ctx.memberId, goalId);
+      if (steps.length === 0) return `Goal #${goalId} has no steps.`;
+      return steps.map(st => `#${st.id} [${st.done_at ? "x" : " "}] ${st.title}`).join("\n");
+    }
+
+    case "remove_step": {
+      const stepId = asInt(input.step_id);
+      if (!stepId) return "Error: step_id required";
+      const ok = await removeStep(ctx.memberId, stepId);
+      return ok ? `Step #${stepId} removed.` : `Error: no step #${stepId} of yours`;
     }
 
     case "group_summary": {
