@@ -26,6 +26,11 @@ export const REMINDER_TOOL_DEFINITIONS: Anthropic.Tool[] = [
           description: "ISO weekdays (1=Mon … 7=Sun). Weekdays are [1,2,3,4,5]. Omit for every day.",
         },
         once_on: { type: "string", description: "ISO date YYYY-MM-DD for a one-off reminder." },
+        every_days: {
+          type: "integer", minimum: 2, maximum: 60,
+          description: "Repeat every N days — 2 for every other day. Counts from today unless start_on is given. Cannot be combined with days.",
+        },
+        start_on: { type: "string", description: "ISO date the every_days count starts from. Defaults to today." },
       },
       required: ["text", "at"],
     },
@@ -53,10 +58,12 @@ const asStr = (v: unknown): string | null =>
   typeof v === "string" && v.trim() ? v.trim() : null;
 
 const DAY_NAMES = ["", "пн", "вт", "ср", "чт", "пт", "сб", "вс"];
-function describe(days: number[] | null, onceOn: string | null): string {
-  if (onceOn) return `один раз ${onceOn}`;
-  if (!days || days.length === 0 || days.length === 7) return "каждый день";
-  return days.slice().sort().map(d => DAY_NAMES[d] ?? d).join(", ");
+function describe(r: { days: number[] | null; once_on: string | null;
+                      interval_days: number | null; anchor_on: string | null }): string {
+  if (r.once_on) return `один раз ${r.once_on}`;
+  if (r.interval_days) return `каждые ${r.interval_days} дн. (от ${r.anchor_on})`;
+  if (!r.days || r.days.length === 0 || r.days.length === 7) return "каждый день";
+  return r.days.slice().sort().map(d => DAY_NAMES[d] ?? d).join(", ");
 }
 
 export async function executeReminderTool(
@@ -76,18 +83,29 @@ export async function executeReminderTool(
         : null;
       const onceOn = asStr(input.once_on);
       if (onceOn && !/^\d{4}-\d{2}-\d{2}$/.test(onceOn)) return "Error: once_on must be YYYY-MM-DD";
+
+      const every = Number.isInteger(input.every_days) ? Number(input.every_days) : null;
+      if (every !== null && (every < 2 || every > 60)) return "Error: every_days must be 2..60";
+      if (every !== null && days?.length) {
+        return "Error: pick weekdays or an interval, not both";
+      }
+      const startOn = asStr(input.start_on);
+      if (startOn && !/^\d{4}-\d{2}-\d{2}$/.test(startOn)) return "Error: start_on must be YYYY-MM-DD";
+      const anchorOn = every !== null ? (startOn ?? isoDateIn(ctx.tz)) : null;
       // A one-off already in the past would sit there and never fire.
       if (onceOn && onceOn < isoDateIn(ctx.tz)) return "Error: that date has already passed";
 
       const hhmm = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-      const r = await createReminder(ctx.memberId, { text, at: hhmm, days, onceOn });
-      return `Reminder #${r.id} set for ${hhmm}, ${describe(r.days, r.once_on)}: ${r.text}`;
+      const r = await createReminder(ctx.memberId, {
+        text, at: hhmm, days, onceOn, intervalDays: every, anchorOn,
+      });
+      return `Reminder #${r.id} set for ${hhmm}, ${describe(r)}: ${r.text}`;
     }
 
     case "list_reminders": {
       const rows = await listReminders(ctx.memberId);
       if (rows.length === 0) return "No reminders set.";
-      return rows.map(r => `#${r.id} ${r.remind_at} (${describe(r.days, r.once_on)}) — ${r.text}`).join("\n");
+      return rows.map(r => `#${r.id} ${r.remind_at} (${describe(r)}) — ${r.text}`).join("\n");
     }
 
     case "delete_reminder": {

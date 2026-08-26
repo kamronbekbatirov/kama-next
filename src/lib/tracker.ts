@@ -434,21 +434,62 @@ export interface GoalStep {
   title: string;
   position: number;
   done_at: string | null;
+  week_start: string | null;
 }
 
-const STEP_COLS = "id, goal_id, title, position, done_at::text AS done_at";
+const STEP_COLS =
+  "id, goal_id, title, position, done_at::text AS done_at, week_start::text AS week_start";
 
-export async function listSteps(memberId: string, goalId: number): Promise<GoalStep[]> {
+/** Monday of the week `date` falls in. Weeks start on Monday here — ISO, and
+ *  the same convention `remind_days` already uses. */
+export function weekStartOf(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  const dow = (d.getUTCDay() + 6) % 7; // 0 = Monday
+  d.setUTCDate(d.getUTCDate() - dow);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Steps on a goal.
+ *
+ * `week` narrows to one week's commitments; omit it for everything. A step with
+ * no week is a permanent milestone and is always returned — that is what every
+ * step created before weeks existed became.
+ */
+export async function listSteps(
+  memberId: string, goalId: number, week?: string,
+): Promise<GoalStep[]> {
+  if (!week) {
+    return query<GoalStep>(
+      `SELECT ${STEP_COLS} FROM tracker_goal_steps
+        WHERE goal_id = $1 AND member_id = $2
+        ORDER BY week_start NULLS FIRST, position, id`,
+      [goalId, memberId],
+    );
+  }
   return query<GoalStep>(
     `SELECT ${STEP_COLS} FROM tracker_goal_steps
       WHERE goal_id = $1 AND member_id = $2
-      ORDER BY position, id`,
-    [goalId, memberId],
+        AND (week_start IS NULL OR week_start = $3::date)
+      ORDER BY week_start NULLS FIRST, position, id`,
+    [goalId, memberId, week],
   );
 }
 
+/** Distinct past weeks that have steps, newest first. */
+export async function stepWeeks(memberId: string, goalId: number): Promise<string[]> {
+  const rows = await query<{ week_start: string }>(
+    `SELECT DISTINCT week_start::text AS week_start
+       FROM tracker_goal_steps
+      WHERE goal_id = $1 AND member_id = $2 AND week_start IS NOT NULL
+      ORDER BY week_start DESC`,
+    [goalId, memberId],
+  );
+  return rows.map(r => r.week_start);
+}
+
 export async function addStep(
-  memberId: string, goalId: number, title: string,
+  memberId: string, goalId: number, title: string, weekStart?: string | null,
 ): Promise<GoalStep | null> {
   // The goal must be the caller's; without this check any goal id would do.
   const owned = await query<{ id: number }>(
@@ -458,11 +499,12 @@ export async function addStep(
   if (owned.length === 0) return null;
 
   const rows = await query<GoalStep>(
-    `INSERT INTO tracker_goal_steps (goal_id, member_id, title, position)
+    `INSERT INTO tracker_goal_steps (goal_id, member_id, title, position, week_start)
      VALUES ($1, $2, $3,
-             COALESCE((SELECT MAX(position) + 1 FROM tracker_goal_steps WHERE goal_id = $1), 0))
+             COALESCE((SELECT MAX(position) + 1 FROM tracker_goal_steps WHERE goal_id = $1), 0),
+             $4::date)
      RETURNING ${STEP_COLS}`,
-    [goalId, memberId, title.trim().slice(0, 300)],
+    [goalId, memberId, title.trim().slice(0, 300), weekStart ?? null],
   );
   return rows[0];
 }

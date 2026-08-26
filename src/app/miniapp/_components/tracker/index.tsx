@@ -23,6 +23,7 @@ export function TrackerTab({ meId = null }: { meId?: string | null }) {
   const { t } = useLang();
   const x = t.dash.tracker;
   const [forming, setForming] = useState(false);
+  const [editing, setEditing] = useState<Goal | null>(null);
   const [reload, setReload] = useState(0);
   const bump = useCallback(() => setReload(n => n + 1), []);
 
@@ -42,7 +43,7 @@ export function TrackerTab({ meId = null }: { meId?: string | null }) {
 
   return (
     <div className="flex flex-col gap-5 pt-2 animate-fade-in">
-      <MinePane onNew={() => setForming(true)} reloadKey={reload} onChanged={bump} />
+      <MinePane onNew={() => setForming(true)} onEdit={setEditing} reloadKey={reload} onChanged={bump} />
 
       <GroupPane key={reload} meId={meId} />
 
@@ -81,10 +82,11 @@ export function TrackerTab({ meId = null }: { meId?: string | null }) {
         </section>
       )}
 
-      {forming && (
+      {(forming || editing) && (
         <GoalForm
-          onClose={() => setForming(false)}
-          onSaved={() => { setForming(false); bump(); }}
+          goal={editing}
+          onClose={() => { setForming(false); setEditing(null); }}
+          onSaved={() => { setForming(false); setEditing(null); bump(); }}
         />
       )}
     </div>

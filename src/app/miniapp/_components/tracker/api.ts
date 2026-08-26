@@ -31,8 +31,9 @@ export const trackerApi = {
     jfetch<{ ok: true } | { error: string }>(
       "/api/tracker/goals", json("PATCH", { id, remind_at, remind_days })),
 
-  steps: (goal_id: number) =>
-    jfetch<GoalStep[]>(`/api/tracker/steps?goal_id=${goal_id}`),
+  steps: (goal_id: number, all = false) =>
+    jfetch<{ steps: GoalStep[]; weeks: string[]; week: string | null }>(
+      `/api/tracker/steps?goal_id=${goal_id}${all ? "&week=all" : ""}`),
   addStep: (goal_id: number, title: string) =>
     jfetch<GoalStep | { error: string }>("/api/tracker/steps", json("POST", { goal_id, title })),
   setStepDone: (id: number, done: boolean) =>

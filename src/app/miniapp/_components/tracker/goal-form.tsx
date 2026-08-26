@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTelegramBack, useClosingConfirmation, haptic } from "@/lib/telegram-webapp";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { todayIn } from "../_shared";
 import { useTimezone } from "../timezone";
 import { Pill } from "../dashboard-ui";
 import { trackerApi } from "./api";
+import type { Goal } from "./types";
 
 /**
  * Creating a goal is a short form with two non-negotiable halves: something
@@ -26,7 +27,13 @@ import { trackerApi } from "./api";
  * invisible: the optional part stays folded to keep the form short, but its
  * heading names what is inside, so a guest can see it exists without opening it.
  */
-export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+export function GoalForm({ onClose, onSaved, goal }: {
+  onClose: () => void;
+  onSaved: () => void;
+  /** Present = editing. A goal you can't correct is a goal you abandon and
+   *  recreate, which throws its whole history away. */
+  goal?: Goal | null;
+}) {
   const { t } = useLang();
   const x = t.dash.tracker;
   const { tz } = useTimezone();
@@ -44,6 +51,22 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!goal) return;
+    const e = (goal.extras ?? {}) as { woop_outcome?: string; woop_obstacle?: string; stake?: string };
+    setTitle(goal.title);
+    setUnit(goal.metric_unit);
+    setTarget(String(goal.target_value));
+    setPeriod(goal.period);
+    setCue(goal.cue_when);
+    setAction(goal.action_then);
+    setOutcome(e.woop_outcome ?? "");
+    setObstacle(e.woop_obstacle ?? "");
+    setStake(e.stake ?? "");
+    setEndsOn(goal.ends_on ?? "");
+    if (e.woop_outcome || e.woop_obstacle || e.stake || goal.ends_on) setMore(true);
+  }, [goal]);
 
   // Inside Telegram the header back button is where people reach for "out of
   // this"; without binding it, the system back gesture closes the whole Mini
@@ -63,7 +86,7 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
     if (!valid) return;
     setBusy(true);
     setErr(null);
-    const res = await trackerApi.createGoal({
+    const payload = {
       title: title.trim(),
       metric_unit: unit.trim(),
       target_value: targetNum,
@@ -77,7 +100,10 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
         woop_obstacle: obstacle.trim() || undefined,
         stake: stake.trim() || undefined,
       },
-    });
+    };
+    const res = goal
+      ? await trackerApi.updateGoal(goal.id, payload)
+      : await trackerApi.createGoal(payload);
     setBusy(false);
     if (res && "error" in res) { setErr(res.error); return; }
     haptic.success();
@@ -115,7 +141,7 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent onClose={onClose} className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{x.formTitle}</DialogTitle>
+          <DialogTitle>{goal ? x.edit : x.formTitle}</DialogTitle>
           <p className="text-[11px] text-[var(--muted)] mt-1.5 leading-relaxed">{x.formLead}</p>
         </DialogHeader>
 
@@ -218,7 +244,7 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>{x.cancel}</Button>
-          <Button onClick={() => void save()} disabled={!valid || busy}>{x.save}</Button>
+          <Button onClick={() => void save()} disabled={!valid || busy}>{goal ? x.saveChanges : x.save}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

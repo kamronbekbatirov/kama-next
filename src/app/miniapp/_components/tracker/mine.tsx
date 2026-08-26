@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Archive, Check, ChevronDown, ChevronUp, Plus, Target } from "lucide-react";
+import { Archive, Check, ChevronDown, ChevronUp, Pencil, Plus, Target } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLang } from "@/components/providers";
@@ -73,7 +73,7 @@ function Progress({ goal, done30, x }: {
   );
 }
 
-function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
+function GoalCard({ goal, onChanged, onEdit }: { goal: Goal; onChanged: () => void; onEdit: (g: Goal) => void }) {
   const { t } = useLang();
   const x = t.dash.tracker;
   const { tz } = useTimezone();
@@ -216,7 +216,13 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
       </div>
       <div className="text-[10px] text-[var(--muted)] mt-1 leading-snug">{x.remindHint}</div>
 
-      <div className="flex items-center justify-end mt-3">
+      <div className="flex items-center justify-end gap-4 mt-3">
+        <button
+          onClick={() => onEdit(goal)}
+          className="inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+        >
+          <Pencil className="h-3.5 w-3.5" /> {x.edit}
+        </button>
         <button
           onClick={archive}
           className="inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
@@ -269,8 +275,9 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
   );
 }
 
-export function MinePane({ onNew, reloadKey, onChanged }: {
+export function MinePane({ onNew, onEdit, reloadKey, onChanged }: {
   onNew: () => void;
+  onEdit: (g: Goal) => void;
   reloadKey: number;
   onChanged: () => void;
 }) {
@@ -312,7 +319,7 @@ export function MinePane({ onNew, reloadKey, onChanged }: {
         </Card>
       ) : (
         goals.map(g => (
-          <GoalCard key={g.id} goal={g} onChanged={() => { load(); onChanged(); }} />
+          <GoalCard key={g.id} goal={g} onEdit={onEdit} onChanged={() => { load(); onChanged(); }} />
         ))
       )}
       <div className="text-[10px] text-center text-[var(--muted)] px-6 leading-relaxed">

@@ -12,6 +12,8 @@ import { SectionHeader } from "./dashboard-ui";
 import { MembersSection } from "./settings-members";
 import { PinModal } from "./pin-modal";
 import { useTimezone, allTimeZones } from "./timezone";
+import { Input } from "@/components/ui/input";
+import { haptic } from "@/lib/telegram-webapp";
 
 interface SessionInfo {
   id: string;
@@ -317,6 +319,59 @@ function TimezoneSection() {
   );
 }
 
+/** Your own name, as everyone on the shared board sees it. */
+function NameSection({ open }: { open: boolean }) {
+  const { t } = useLang();
+  const x = t.dash.tracker;
+  const [name, setName] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setSaved(false);
+    fetch("/api/auth/me").then(r => r.json())
+      .then(d => { if (d?.ok && d.name) setName(d.name); })
+      .catch(() => {});
+  }, [open]);
+
+  const save = async () => {
+    const v = name.trim();
+    if (!v || busy) return;
+    setBusy(true);
+    const r = await fetch("/api/auth/name", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: v }),
+    }).then(r => r.json()).catch(() => null);
+    setBusy(false);
+    if (r?.ok) { setSaved(true); haptic.success(); }
+  };
+
+  return (
+    <section>
+      <SectionHeader eyebrow={x.myName} trailing={<User className="h-3.5 w-3.5 text-[var(--muted)]" />} />
+      <Card className="p-2">
+        <div className="flex items-center gap-2 py-1.5 px-2">
+          <Input
+            value={name}
+            onChange={e => { setName(e.target.value); setSaved(false); }}
+            onKeyDown={e => { if (e.key === "Enter") void save(); }}
+            className="h-9 text-sm"
+          />
+          <button
+            onClick={() => void save()}
+            disabled={!name.trim() || busy}
+            className="h-9 px-4 shrink-0 rounded-xl bg-[var(--foreground)] text-[var(--background)] text-xs font-semibold disabled:opacity-40 cursor-pointer"
+          >
+            {saved ? x.nameSaved : x.saveChanges}
+          </button>
+        </div>
+      </Card>
+    </section>
+  );
+}
+
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   // Both shells mount this sheet, so it has to know the audience. The
   // underlying routes are owner-guarded regardless — this only decides what to
@@ -361,6 +416,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
               </div>
             </Card>
           </section>
+
+          <NameSection open={open} />
 
           <TimezoneSection />
 

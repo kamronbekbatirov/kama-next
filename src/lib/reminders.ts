@@ -16,11 +16,14 @@ export interface Reminder {
   remind_at: string;
   days: number[] | null;
   once_on: string | null;
+  interval_days: number | null;
+  anchor_on: string | null;
   active: boolean;
 }
 
 const COLS = `id, member_id, text, to_char(remind_at, 'HH24:MI') AS remind_at,
-              days, once_on::text AS once_on, active`;
+              days, once_on::text AS once_on,
+              interval_days, anchor_on::text AS anchor_on, active`;
 
 export async function listReminders(memberId: string): Promise<Reminder[]> {
   return query<Reminder>(
@@ -33,12 +36,14 @@ export async function listReminders(memberId: string): Promise<Reminder[]> {
 
 export async function createReminder(memberId: string, r: {
   text: string; at: string; days?: number[] | null; onceOn?: string | null;
+  intervalDays?: number | null; anchorOn?: string | null;
 }): Promise<Reminder> {
   const rows = await query<Reminder>(
-    `INSERT INTO reminders (member_id, text, remind_at, days, once_on)
-     VALUES ($1, $2, $3::time, $4, $5::date)
+    `INSERT INTO reminders (member_id, text, remind_at, days, once_on, interval_days, anchor_on)
+     VALUES ($1, $2, $3::time, $4, $5::date, $6, $7::date)
      RETURNING ${COLS}`,
-    [memberId, r.text.trim().slice(0, 500), r.at, r.days?.length ? r.days : null, r.onceOn ?? null],
+    [memberId, r.text.trim().slice(0, 500), r.at, r.days?.length ? r.days : null,
+     r.onceOn ?? null, r.intervalDays ?? null, r.anchorOn ?? null],
   );
   return rows[0];
 }
@@ -69,7 +74,7 @@ export async function dueReminders(defaultTz: string): Promise<DueReminder[]> {
   return query<DueReminder>(
     `WITH ctx AS (
        SELECT r.id, r.text, r.days, r.once_on, r.last_fired_on, r.remind_at,
-              m.telegram_id,
+              r.interval_days, r.anchor_on, m.telegram_id,
               (NOW() AT TIME ZONE COALESCE(m.tz, $1))::date AS local_date,
               (NOW() AT TIME ZONE COALESCE(m.tz, $1))::time AS local_time
          FROM reminders r
@@ -81,7 +86,11 @@ export async function dueReminders(defaultTz: string): Promise<DueReminder[]> {
       WHERE local_time >= remind_at
         AND (last_fired_on IS NULL OR last_fired_on < local_date)
         AND (once_on IS NULL OR once_on = local_date)
-        AND (days IS NULL OR EXTRACT(ISODOW FROM local_date)::smallint = ANY(days))`,
+        AND (days IS NULL OR EXTRACT(ISODOW FROM local_date)::smallint = ANY(days))
+        -- "Every N days" counts from the anchor, so the phase is fixed rather
+        -- than drifting with whenever the query happens to run.
+        AND (interval_days IS NULL
+             OR (local_date - anchor_on) % interval_days = 0)`,
     [defaultTz],
   );
 }

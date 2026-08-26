@@ -67,4 +67,5 @@ export interface GoalStep {
   title: string;
   position: number;
   done_at: string | null;
+  week_start: string | null;
 }
