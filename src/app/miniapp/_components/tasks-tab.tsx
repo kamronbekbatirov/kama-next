@@ -96,6 +96,16 @@ function useTaskView(): [TaskView | null, (v: TaskView) => void] {
  * naturally beside "things I am doing".
  */
 export function TasksTab() {
+  // The owner's own rows on the shared board need marking just as much as a
+  // guest's do — the board is a comparison, and it only reads if you can see
+  // which line is yours.
+  const [meId, setMeId] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/auth/me").then(r => r.json())
+      .then(d => { if (d?.ok && d.memberId) setMeId(d.memberId); })
+      .catch(() => {});
+  }, []);
+
   const [pane, setPane] = useHashView("tasks", ["own", "tracker"], "own");
   const { t: tt } = useLang();
 
@@ -107,7 +117,7 @@ export function TasksTab() {
           <TabsTrigger value="tracker">{tt.dash.tabs.tracker}</TabsTrigger>
         </TabsList>
         <TabsContent value="own"><OwnTasks /></TabsContent>
-        <TabsContent value="tracker"><TrackerTab /></TabsContent>
+        <TabsContent value="tracker"><TrackerTab meId={meId} /></TabsContent>
       </Tabs>
     </div>
   );
