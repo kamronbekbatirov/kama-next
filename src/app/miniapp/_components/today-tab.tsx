@@ -18,7 +18,22 @@ import { useTimezone, clockParts, dateLabel } from "./timezone";
 import { SCHEDULE_ICON_KEYS, DEFAULT_ICON_KEY } from "@/lib/schedule-icons";
 import { tgConfirm } from "@/lib/telegram-webapp";
 
-interface ScheduleRow { id: string; start_min: number; end_min: number; label: string; icon: string; position: number; }
+type PrayerName = "fajr" | "dhuhr" | "asr" | "maghrib" | "isha" | "sunrise";
+interface PrayerTimes {
+  date: string;
+  times: Record<PrayerName, { hhmm: string; min: number }>;
+}
+
+/** "1ч 20м" / "35м" — how long until the next prayer. */
+function fmtGap(mins: number): string {
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h > 0 ? `${h}ч ${m}м` : `${m}м`;
+}
+
+interface ScheduleRow { id: string; start_min: number; end_min: number; label: string; icon: string; position: number;
+  anchor: string | null;
+  offset_min: number | null;
+}
 
 export function TodayTab() {
   const { t, lang } = useLang();
@@ -29,6 +44,7 @@ export function TodayTab() {
   const [habits, setHabits]       = useState<Partial<HabitsRow>>({});
   const [customDay, setCustomDay] = useState<Record<string, boolean>>({});
   const [schedule, setSchedule]   = useState<ScheduleBlock[]>([]);
+  const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
   const [habitDefs, setHabitDefs] = useState<HabitDef[]>([]);
 
   // What last night's log named as today's most important task. Written once,
@@ -76,8 +92,12 @@ export function TodayTab() {
       if (Array.isArray(rows)) {
         setSchedule(rows.map(r => ({
           id: r.id, start: r.start_min, end: r.end_min, label: r.label, icon: r.icon,
+          anchor: r.anchor ?? null, offset: r.offset_min ?? null,
         })));
       }
+    });
+    api("/api/dashboard/prayer-times").then((r: PrayerTimes | { error: string }) => {
+      if (r && "times" in r) setPrayerTimes(r);
     });
     api("/api/dashboard/habit-defs").then(rows => {
       if (Array.isArray(rows)) setHabitDefs(rows);
@@ -105,7 +125,39 @@ export function TodayTab() {
   // Clock + "what's now" are computed in the configured timezone.
   const { h: nowH, m: nowMinute, s: nowSec } = clockParts(time, tz);
   const nowMin = nowH * 60 + nowMinute;
-  const sorted = [...schedule].sort((a, b) => a.start - b.start);
+  // An anchored block keeps its length and takes its start from today's prayer.
+  // Resolved here rather than stored, because the answer is different tomorrow.
+  const sorted = [...schedule].map(b => {
+    const anchorAt = b.anchor && prayerTimes?.times[b.anchor as PrayerName]?.min;
+    if (typeof anchorAt !== "number") return b;
+    const start = Math.max(0, Math.min(1439, anchorAt + (b.offset ?? 0)));
+    return { ...b, start, end: start + (b.end - b.start) };
+  }).sort((a, b) => a.start - b.start);
+
+  // Prayers are markers on the timeline, never blocks. A block occupies a range
+  // and pushes its neighbours; a prayer that moves every day would drag the
+  // whole schedule with it. As a marker it simply shows where it falls.
+  const markers = prayerTimes
+    ? PRAYER_IDS.map(k => ({
+        key: k as PrayerName,
+        label: d.prayerNames[k],
+        min: prayerTimes.times[k as PrayerName].min,
+        hhmm: prayerTimes.times[k as PrayerName].hhmm,
+        done: !!habits[k as keyof HabitsRow],
+      }))
+    : [];
+  const nextPrayer = markers.find(m => m.min > nowMin) ?? null;
+
+  // Blocks and prayer markers in one ordered list. While editing, markers are
+  // hidden — the rows become inputs and a non-editable line between them reads
+  // like a bug.
+  type Row =
+    | { kind: "block"; at: number; block: (typeof sorted)[number] }
+    | { kind: "prayer"; at: number; prayer: (typeof markers)[number] };
+  const timeline: Row[] = [
+    ...sorted.map(b => ({ kind: "block" as const, at: b.start, block: b })),
+    ...(editSched ? [] : markers.map(m => ({ kind: "prayer" as const, at: m.min, prayer: m }))),
+  ].sort((a, b) => a.at - b.at || (a.kind === "prayer" ? -1 : 1));
   const current = sorted.find(b => nowMin >= b.start && nowMin < b.end);
   const nextBlock = current ? sorted[sorted.indexOf(current) + 1] : sorted.find(b => nowMin < b.start);
 
@@ -315,7 +367,24 @@ export function TodayTab() {
         {/* Timeline — clean, no rail, no dots; active row gets surface highlight */}
         <Card className="p-2">
           <div className="flex flex-col gap-0.5">
-            {sorted.map((b) => {
+            {timeline.map((row) => {
+              if (row.kind === "prayer") {
+                const m = row.prayer;
+                return (
+                  <div key={`p_${m.key}`} className="flex items-center gap-3 py-1 px-3 opacity-70">
+                    <span className="text-[10px] tabular-nums w-11 shrink-0 text-right text-[var(--muted)]">
+                      {m.hhmm}
+                    </span>
+                    <span className="h-1 w-1 rounded-full bg-[var(--muted)] shrink-0" aria-hidden />
+                    <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted)] truncate">
+                      {m.label}
+                    </span>
+                    <span className="flex-1 border-t border-dashed border-[var(--card-border)] mt-0.5" aria-hidden />
+                    {m.done && <Check className="h-3 w-3 text-[var(--muted)] shrink-0" />}
+                  </div>
+                );
+              }
+              const b = row.block;
               const done = nowMin >= b.end;
               const active = nowMin >= b.start && nowMin < b.end;
               const blockProgress = active
@@ -414,26 +483,55 @@ export function TodayTab() {
             </span>
           }
         />
-        <div className="grid grid-cols-5 gap-1.5">
-          {prayers.map(p => {
-            const done = !!habits[p.key as keyof HabitsRow];
-            return (
-              <button
-                key={p.key}
-                onClick={() => toggleBuiltin(p.key)}
-                className={[
-                  "py-3 rounded-2xl border text-xs font-medium transition-all cursor-pointer",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
-                  done
-                    ? "bg-[var(--foreground)] text-[var(--background)] border-[var(--foreground)] shadow-soft"
-                    : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--foreground)]/30 hover:text-[var(--foreground)]",
-                ].join(" ")}
-              >
-                {p.label.slice(0, 3)}
-              </button>
-            );
-          })}
-        </div>
+        <Card className="p-1.5">
+          <div className="flex flex-col gap-0.5">
+            {markers.length === 0 && (
+              <div className="py-3 text-center text-[11px] text-[var(--muted)]">…</div>
+            )}
+            {markers.map(m => {
+              const isNext = nextPrayer?.key === m.key;
+              const passed = m.min <= nowMin;
+              return (
+                <button
+                  key={m.key}
+                  onClick={() => toggleBuiltin(m.key)}
+                  className={[
+                    "relative flex items-center gap-3 py-2.5 px-3 rounded-xl transition-all cursor-pointer text-left",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+                    isNext ? "bg-[var(--surface-2)]" : "hover:bg-[var(--surface-2)]/60",
+                    passed && !m.done ? "opacity-60" : "",
+                  ].join(" ")}
+                >
+                  {isNext && (
+                    <div className="absolute inset-y-0 left-0 w-0.5 bg-[var(--foreground)]" aria-hidden />
+                  )}
+                  <span className={[
+                    "text-xs tabular-nums w-11 shrink-0 text-right",
+                    isNext ? "text-[var(--foreground)] font-semibold" : "text-[var(--muted)]",
+                  ].join(" ")}>
+                    {m.hhmm}
+                  </span>
+                  <span className={["text-sm flex-1 truncate", isNext ? "font-semibold" : ""].join(" ")}>
+                    {m.label}
+                  </span>
+                  {isNext && (
+                    <span className="text-[10px] tabular-nums text-[var(--muted)] shrink-0">
+                      {d.prayerIn.replace("{t}", fmtGap(m.min - nowMin))}
+                    </span>
+                  )}
+                  <span className={[
+                    "h-5 w-5 shrink-0 rounded-full border grid place-items-center transition-all",
+                    m.done
+                      ? "bg-[var(--foreground)] border-[var(--foreground)] text-[var(--background)]"
+                      : "border-[var(--card-border)]",
+                  ].join(" ")}>
+                    {m.done && <Check className="h-3 w-3" />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </Card>
       </section>
 
       {/* Habits */}

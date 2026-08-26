@@ -30,12 +30,14 @@ async function seedIfEmpty() {
   }
 }
 
+const ALLOWED_ANCHORS = new Set(["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]);
+
 export async function GET() {
   try {
     await auth();
     await seedIfEmpty();
     const rows = await query(
-      "SELECT id, start_min, end_min, label, icon, position FROM schedule_blocks ORDER BY position ASC, start_min ASC"
+      "SELECT id, start_min, end_min, label, icon, position, anchor, offset_min FROM schedule_blocks ORDER BY position ASC, start_min ASC"
     );
     return Response.json(rows);
   } catch {
@@ -67,8 +69,21 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     await auth();
-    const { id, start_min, end_min, label, icon, position } = await req.json();
+    const b = await req.json();
+    const { id, start_min, end_min, label, icon, position } = b;
     if (!id) return Response.json({ error: "id required" }, { status: 400 });
+
+    // The anchor is set on its own branch: clearing it means writing NULL, and
+    // COALESCE cannot express that. Sending `anchor: null` detaches a block
+    // from its prayer and returns it to the clock.
+    if ("anchor" in b) {
+      const anchor = ALLOWED_ANCHORS.has(String(b.anchor)) ? String(b.anchor) : null;
+      const off = Number.isInteger(b.offset_min) ? b.offset_min : 0;
+      await query("UPDATE schedule_blocks SET anchor = $2, offset_min = $3, updated_at = NOW() WHERE id = $1",
+        [id, anchor, anchor ? off : null]);
+      return Response.json({ ok: true });
+    }
+
     await query(
       `UPDATE schedule_blocks SET
          start_min = COALESCE($2, start_min),
