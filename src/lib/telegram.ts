@@ -125,6 +125,26 @@ export async function tgEditMessage(
  * have hidden it. Picks the largest size Telegram offers that still stays
  * small — these are rendered as ~32px circles, so the biggest one is waste.
  */
+/**
+ * The bot's @username, cached for the process.
+ *
+ * Needed to build `t.me/<bot>?start=…` deep links. It cannot change without a
+ * restart of the bot's own configuration, so one lookup is enough.
+ */
+let botUsernameCache: string | null = null;
+export async function tgBotUsername(): Promise<string | null> {
+  if (botUsernameCache) return botUsernameCache;
+  try {
+    const res = await fetch(`${API}/getMe`);
+    const body = await res.json();
+    if (!body?.ok || !body.result?.username) return null;
+    botUsernameCache = body.result.username as string;
+    return botUsernameCache;
+  } catch {
+    return null;
+  }
+}
+
 export async function tgUserPhotoFileId(userId: string | number): Promise<string | null> {
   try {
     const res = await fetch(`${API}/getUserProfilePhotos?user_id=${encodeURIComponent(String(userId))}&limit=1`);

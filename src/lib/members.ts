@@ -58,8 +58,13 @@ export async function getMemberByTelegramId(telegramId: string): Promise<Member 
 }
 
 export async function listMembers(): Promise<Member[]> {
+  // Revoked members are gone, not greyed out. Pulling someone's access is
+  // meant to remove them, and a lingering name reads like they still have it.
+  // The row is kept so their history and any re-invite still resolve.
   return query<Member>(
-    `SELECT ${SELECT_COLS} FROM members ORDER BY role DESC, created_at ASC`,
+    `SELECT ${SELECT_COLS} FROM members
+      WHERE revoked_at IS NULL
+      ORDER BY role DESC, created_at ASC`,
   );
 }
 
@@ -167,4 +172,75 @@ export async function memberPhotoFileId(memberId: string): Promise<string | null
     [memberId],
   );
   return rows[0]?.photo_file_id ?? null;
+}
+
+/**
+ * Redeem an invite from inside Telegram, binding that person's account to the
+ * member row the owner created.
+ *
+ * This is what makes an invite work for someone whose Telegram id the owner
+ * never knew: pressing Start is what supplies it. The owner's chosen name is
+ * kept — they wrote it to recognise this person — but the username and photo
+ * come from Telegram, which is more current than anything typed by hand.
+ */
+export async function redeemInviteInTelegram(
+  token: string, tg: { id: string | number; username?: string | null },
+): Promise<Member | null> {
+  if (!token) return null;
+  const rows = await query<{ member_id: string }>(
+    `UPDATE member_invites
+        SET used_at = NOW(), used_ip = 'telegram'
+      WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+      RETURNING member_id`,
+    [hashToken(token)],
+  );
+  if (rows.length === 0) return null;
+  const placeholderId = rows[0].member_id;
+  const tgId = String(tg.id);
+
+  // Deliberately NOT getMemberByTelegramId: that one hides revoked members,
+  // which is how their access is cut — but re-inviting someone you removed is
+  // the ordinary case, and their old row is exactly what we have to find. The
+  // unique index on telegram_id means writing the id onto a second row would
+  // fail outright.
+  const prior = await query<Member>(
+    `SELECT ${SELECT_COLS} FROM members WHERE telegram_id = $1`, [tgId],
+  );
+
+  if (prior[0] && prior[0].id !== placeholderId) {
+    // Adopt the identity that already exists, carrying over the name the owner
+    // just typed, then drop the empty row this invite created so the same
+    // person never shows up twice in the owner's list. The delete is guarded:
+    // a row that somehow has goals or an id of its own is left alone.
+    const named = await query<{ display_name: string }>(
+      "SELECT display_name FROM members WHERE id = $1", [placeholderId],
+    );
+    const revived = await query<Member>(
+      `UPDATE members
+          SET revoked_at = NULL, username = $2,
+              display_name = COALESCE($3, display_name)
+        WHERE id = $1
+        RETURNING ${SELECT_COLS}`,
+      [prior[0].id, tg.username ?? null, named[0]?.display_name ?? null],
+    );
+    await query(
+      `DELETE FROM members
+        WHERE id = $1 AND telegram_id IS NULL AND role = 'guest'
+          AND NOT EXISTS (SELECT 1 FROM tracker_goals g WHERE g.member_id = $1)`,
+      [placeholderId],
+    );
+    await refreshMemberPhoto(prior[0].id, tgId, true).catch(() => {});
+    return revived[0] ?? prior[0];
+  }
+
+  const updated = await query<Member>(
+    `UPDATE members
+        SET telegram_id = $2, username = $3, revoked_at = NULL
+      WHERE id = $1
+      RETURNING ${SELECT_COLS}`,
+    [placeholderId, tgId, tg.username ?? null],
+  );
+  if (updated.length === 0) return null;
+  await refreshMemberPhoto(placeholderId, tgId, true).catch(() => {});
+  return updated[0];
 }

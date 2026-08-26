@@ -68,10 +68,14 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Only protect /miniapp routes (not /miniapp/login or API auth routes)
+  // Only protect /miniapp routes. /miniapp/join is public on purpose: it is
+  // where an invite is redeemed, and the person arriving has no session yet by
+  // definition — bouncing them to the password screen is exactly what an invite
+  // is supposed to avoid.
   if (
     pathname.startsWith("/miniapp") &&
     !pathname.startsWith("/miniapp/login") &&
+    !pathname.startsWith("/miniapp/join") &&
     !pathname.startsWith("/api/auth")
   ) {
     if (!claims.valid) {

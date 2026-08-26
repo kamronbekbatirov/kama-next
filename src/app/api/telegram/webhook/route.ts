@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { query } from "@/lib/db";
 import { TELEGRAM_ID } from "@/lib/auth";
-import { getMemberByTelegramId, ensureOwnerMember } from "@/lib/members";
+import { getMemberByTelegramId, ensureOwnerMember, redeemInviteInTelegram } from "@/lib/members";
 import { getTimezone } from "@/lib/timezone";
 import {
   tgSendMessage,
@@ -13,6 +13,8 @@ import {
 } from "@/lib/telegram";
 import { transcribeAudio } from "@/lib/whisper";
 import { buildSystemPrompt, buildGuestSystemPrompt, runChat, type ChatTurn, type UserMessageInput } from "@/lib/anthropic";
+
+const SITE = process.env.SITE_URL ?? "https://kama.uz";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -212,6 +214,31 @@ async function handleMessage(msg: TgMessage) {
   const chatId = msg.chat.id;
   const text = (msg.text ?? "").trim();
   const caption = (msg.caption ?? "").trim();
+
+  // An invite is redeemed here, ahead of the gate, because the person holding
+  // one is not a member yet by any means the gate can see: the owner may never
+  // have known their Telegram id. Pressing Start is what supplies it.
+  const startPayload = /^\/start\s+(\S+)/.exec(text)?.[1];
+  if (startPayload) {
+    const invited = await redeemInviteInTelegram(startPayload, {
+      id: fromId, username: msg.from?.username ?? null,
+    });
+    if (!invited) {
+      await tgSendMessage(
+        chatId,
+        "Приглашение не подошло — оно одноразовое и живёт 72 часа. Попроси новое.",
+      );
+      return;
+    }
+    await tgSendMessage(
+      chatId,
+      `Привет, ${invited.display_name}. Ты в общем трекере целей.\n\n` +
+      "Нажми кнопку — откроется трекер. Или просто напиши мне, что хочешь делать " +
+      "регулярно, и я помогу оформить это в цель.",
+      { reply_markup: { inline_keyboard: [[{ text: "Открыть трекер", web_app: { url: `${SITE}/miniapp/tracker` } }]] } },
+    );
+    return;
+  }
 
   // Gate: the owner, or an invited member of the shared tracker. Anyone else is
   // turned away. A revoked member stops resolving here immediately, so pulling

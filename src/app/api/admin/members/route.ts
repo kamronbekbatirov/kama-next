@@ -1,7 +1,7 @@
 import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
 import { revokeMember, TELEGRAM_ID } from "@/lib/auth";
 import { listMembers, upsertGuest, refreshMemberPhoto, createInvite, getMemberById } from "@/lib/members";
-import { tgSendMessage } from "@/lib/telegram";
+import { tgSendMessage, tgBotUsername } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +40,14 @@ export async function POST(req: Request) {
     // Pull their photo now: a guest who is invited but has not opened the app
     // yet should still have a face on the board the others are looking at.
     void refreshMemberPhoto(member.id, telegramId ?? null, true).catch(() => {});
-    const url = `${SITE}/miniapp/join?t=${token}`;
+    // The invite is a bot deep link, not a website link. Pressing Start is what
+    // hands us their Telegram id — which is the whole reason the owner does not
+    // have to know it in advance — and it means no password screen is ever in
+    // the way. The site link stays as the fallback for someone who somehow has
+    // no Telegram.
+    const bot = await tgBotUsername();
+    const webUrl = `${SITE}/miniapp/join?t=${token}`;
+    const url = bot ? `https://t.me/${bot}?start=${token}` : webUrl;
 
     // Best effort: a guest who has never pressed /start cannot receive a bot
     // message, so hand the URL back for the owner to pass along.
@@ -57,13 +64,13 @@ export async function POST(req: Request) {
         "Нажми кнопку ниже — откроется трекер. Приглашение одноразовое и живёт 72 часа.",
         {
           link_preview_options: { is_disabled: true },
-          reply_markup: { inline_keyboard: [[{ text: "Открыть трекер", web_app: { url } }]] },
+          reply_markup: { inline_keyboard: [[{ text: "Открыть трекер", web_app: { url: webUrl } }]] },
         },
       ).catch(() => ({ ok: false }));
       delivered = !!res.ok;
     }
 
-    return Response.json({ ok: true, member, url, delivered });
+    return Response.json({ ok: true, member, url, webUrl, delivered });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === "unauthorized") return UNAUTHORIZED();

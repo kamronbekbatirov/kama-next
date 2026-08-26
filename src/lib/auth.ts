@@ -251,9 +251,24 @@ export async function revokeAllSessions(memberId: string) {
 
 /** Revoke a member and every session they hold, in one call. */
 export async function revokeMember(memberId: string) {
-  await query("UPDATE members SET revoked_at = NOW() WHERE id = $1 AND role <> 'owner'", [memberId]);
   await query("DELETE FROM member_invites WHERE member_id = $1 AND used_at IS NULL", [memberId]);
   await revokeAllSessions(memberId);
+
+  // Someone who never connected an account and never wrote a goal has no
+  // history to preserve — the row is only ever an unclaimed invite, so removing
+  // access removes the row. Anyone who actually took part keeps their row
+  // (their check-ins hang off it), just marked revoked and hidden from the
+  // owner's list.
+  const gone = await query<{ id: string }>(
+    `DELETE FROM members
+      WHERE id = $1 AND role <> 'owner' AND telegram_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM tracker_goals g WHERE g.member_id = $1)
+      RETURNING id`,
+    [memberId],
+  );
+  if (gone.length > 0) return;
+
+  await query("UPDATE members SET revoked_at = NOW() WHERE id = $1 AND role <> 'owner'", [memberId]);
 }
 
 /** Sign out the current device: revoke its session row and drop the cookie. */
