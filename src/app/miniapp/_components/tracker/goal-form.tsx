@@ -27,6 +27,36 @@ import type { Goal } from "./types";
  * invisible: the optional part stays folded to keep the form short, but its
  * heading names what is inside, so a guest can see it exists without opening it.
  */
+/**
+ * Declared at module scope, not inside the form.
+ *
+ * A component created during render is a new function identity every time, so
+ * React treats it as a different component type, unmounts the previous subtree
+ * and mounts a fresh one. Every input inside is destroyed and recreated on each
+ * keystroke — which on a phone closes the keyboard after the first character.
+ */
+function Label({ children }: { children: React.ReactNode }) {
+  return <div className="text-[11px] font-medium text-[var(--muted)] mb-1.5">{children}</div>;
+}
+
+/** A named block, so the two required halves read as two decisions. */
+function Section({ n, title, note, children }: {
+  n: number; title: string; note: string; children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-[var(--card-border)] bg-[var(--surface-2)] p-3.5">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="grid place-items-center h-5 w-5 shrink-0 rounded-full bg-[var(--muted-bg)] text-[10px] font-bold tabular-nums text-[var(--muted)]">
+          {n}
+        </span>
+        <span className="text-xs font-semibold">{title}</span>
+        <span className="ml-auto text-[10px] text-[var(--muted)] shrink-0">{note}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export function GoalForm({ onClose, onSaved, goal }: {
   onClose: () => void;
   onSaved: () => void;
@@ -109,26 +139,6 @@ export function GoalForm({ onClose, onSaved, goal }: {
     haptic.success();
     onSaved();
   };
-
-  const Label = ({ children }: { children: React.ReactNode }) => (
-    <div className="text-[11px] font-medium text-[var(--muted)] mb-1.5">{children}</div>
-  );
-
-  /** A named block, so the two required halves read as two decisions. */
-  const Section = ({ n, title: heading, note, children }: {
-    n: number; title: string; note: string; children: React.ReactNode;
-  }) => (
-    <section className="rounded-2xl border border-[var(--card-border)] bg-[var(--surface-2)] p-3.5">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="grid place-items-center h-5 w-5 shrink-0 rounded-full bg-[var(--muted-bg)] text-[10px] font-bold tabular-nums text-[var(--muted)]">
-          {n}
-        </span>
-        <span className="text-xs font-semibold">{heading}</span>
-        <span className="ml-auto text-[10px] text-[var(--muted)] shrink-0">{note}</span>
-      </div>
-      {children}
-    </section>
-  );
 
   // The plan assembled as the sentence it will actually be shown as — on the
   // card, and in the reminder. Seeing it form is the point of splitting it in
