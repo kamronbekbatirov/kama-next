@@ -20,7 +20,7 @@ export const trackerApi = {
 
   createGoal: (g: {
     title: string; metric_unit: string; target_value: number;
-    period: "day" | "week"; cue_when: string; action_then: string; start_date: string;
+    period: "day" | "week"; cue_when: string; action_then: string; start_date: string; ends_on?: string | null;
     extras?: { woop_outcome?: string; woop_obstacle?: string; stake?: string };
   }) => jfetch<Goal | { error: string }>("/api/tracker/goals", json("POST", g)),
 

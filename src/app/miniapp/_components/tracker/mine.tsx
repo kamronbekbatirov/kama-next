@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Plus, Target, Archive } from "lucide-react";
+import { Archive, Check, ChevronDown, ChevronUp, Plus, Target } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLang } from "@/components/providers";
@@ -13,20 +13,62 @@ import { GoalSteps } from "./steps";
 import type { CheckIn, Goal } from "./types";
 import { tgConfirm, tgAlert, haptic, ensureBotCanWrite } from "@/lib/telegram-webapp";
 
-/** 14 days of dots. A miss is an empty dot, never a cross — see group.tsx. */
-function DotStrip({ days, done }: { days: string[]; done: Set<string> }) {
+/**
+ * 14 days of dots. A miss is an empty dot, never a cross — see group.tsx.
+ *
+ * Labelled now: an unexplained row of squares was the one thing on this card
+ * nobody could read. The last dot is today and is ringed, so the strip has a
+ * direction.
+ */
+function DotStrip({ days, done, label, todayLabel }: {
+  days: string[]; done: Set<string>; label: string; todayLabel: string;
+}) {
   return (
-    <div className="flex items-center gap-1 mt-2">
-      {days.map(d => (
-        <span
-          key={d}
-          title={d}
-          className={[
-            "h-2.5 flex-1 rounded-full",
-            done.has(d) ? "bg-[var(--foreground)]" : "bg-[var(--muted-bg)]",
-          ].join(" ")}
+    <div className="mt-3">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">{label}</span>
+        <span className="text-[10px] text-[var(--muted)]">{todayLabel} →</span>
+      </div>
+      <div className="flex items-center gap-1">
+        {days.map((d, i) => (
+          <span
+            key={d}
+            title={d}
+            className={[
+              "h-2.5 flex-1 rounded-full",
+              done.has(d) ? "bg-[var(--foreground)]" : "bg-[var(--muted-bg)]",
+              i === days.length - 1 ? "ring-2 ring-offset-1 ring-[var(--foreground)]/25 ring-offset-[var(--card-bg)]" : "",
+            ].join(" ")}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One honest number per goal: steps if it has a destination, days if it does not. */
+function Progress({ goal, done30, x }: {
+  goal: Goal;
+  done30: number;
+  x: { stepsProgress: string; consistency: string };
+}) {
+  const hasSteps = goal.steps_total > 0;
+  const pct = hasSteps
+    ? (goal.steps_done / goal.steps_total) * 100
+    : (done30 / 30) * 100;
+  const caption = hasSteps
+    ? x.stepsProgress.replace("{done}", String(goal.steps_done)).replace("{total}", String(goal.steps_total))
+    : x.consistency.replace("{n}", String(done30));
+
+  return (
+    <div className="mt-2">
+      <div className="h-1 rounded-full bg-[var(--muted-bg)] overflow-hidden">
+        <div
+          className="h-full rounded-full bg-[var(--foreground)] transition-all"
+          style={{ width: `${Math.max(2, Math.min(100, pct))}%` }}
         />
-      ))}
+      </div>
+      <div className="text-[10px] text-[var(--muted)] mt-1 tabular-nums">{caption}</div>
     </div>
   );
 }
@@ -42,6 +84,7 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
     woop_outcome?: string; woop_obstacle?: string; stake?: string;
   };
   const [checkins, setCheckins] = useState<CheckIn[]>([]);
+  const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -55,6 +98,11 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
   useEffect(() => { load(); }, [load]);
 
   const done = new Set(checkins.filter(c => c.value > 0).map(c => c.day));
+  const from30 = shiftDate(today, -29);
+  const done30 = checkins.filter(c => c.value > 0 && c.day >= from30).length;
+  const daysLeft = goal.ends_on
+    ? Math.round((Date.parse(goal.ends_on) - Date.parse(today)) / 864e5)
+    : null;
   const todayEntry = checkins.find(c => c.day === today);
 
   const log = async () => {
@@ -96,16 +144,34 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
     <Card className="p-4">
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold">{goal.title}</div>
-          <div className="text-[11px] text-[var(--muted)] mt-0.5">
+          <div className="text-sm font-semibold truncate">{goal.title}</div>
+          <div className="text-[11px] text-[var(--muted)] mt-0.5 tabular-nums">
             {goal.target_value} {goal.metric_unit} / {goal.period === "week" ? x.fPeriodWeek : x.fPeriodDay}
+            {/* A date is information, not a verdict: it never turns red and the
+                goal keeps working once it has passed. */}
+            {daysLeft !== null && (
+              <> · {daysLeft >= 0
+                ? x.daysLeft.replace("{n}", String(daysLeft))
+                : x.dateePassed}</>
+            )}
           </div>
         </div>
-        <IconButton size="sm" variant="ghost" onClick={archive} aria-label={x.archive} title={x.archive}>
-          <Archive className="h-3.5 w-3.5" />
-        </IconButton>
+        <button
+          onClick={() => setOpen(v => !v)}
+          aria-expanded={open}
+          className="shrink-0 h-7 w-7 grid place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--muted-bg)] hover:text-[var(--foreground)] transition-all cursor-pointer"
+          title={x.details}
+        >
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
       </div>
 
+      <Progress goal={goal} done30={done30} x={x} />
+
+      {/* Everything below is why you opened the card, not what you glance at.
+          Collapsed by default: seven stacked sections per goal is a wall, and
+          the one thing you come here to do — log today — stays outside it. */}
+      {open && (<>
       {/* The if-then plan is shown, not filed away: re-reading it is the point. */}
       <div className="mt-2 text-[11px] leading-relaxed text-[var(--muted)] bg-[var(--surface-2)] rounded-xl px-3 py-2">
         <span className="font-semibold">{x.fCue}</span> {goal.cue_when}
@@ -126,7 +192,7 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
         </div>
       )}
 
-      <DotStrip days={days} done={done} />
+      <DotStrip days={days} done={done} label={x.lastDays} todayLabel={x.todayMark} />
 
       <GoalSteps goalId={goal.id} onChanged={onChanged} />
 
@@ -150,7 +216,17 @@ function GoalCard({ goal, onChanged }: { goal: Goal; onChanged: () => void }) {
       </div>
       <div className="text-[10px] text-[var(--muted)] mt-1 leading-snug">{x.remindHint}</div>
 
-      <div className="flex items-center gap-2 mt-3">
+      <div className="flex items-center justify-end mt-3">
+        <button
+          onClick={archive}
+          className="inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+        >
+          <Archive className="h-3.5 w-3.5" /> {x.archive}
+        </button>
+      </div>
+      </>)}
+
+      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--card-border)]">
         {todayEntry ? (
           <>
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-500">

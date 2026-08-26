@@ -40,6 +40,7 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [outcome, setOutcome] = useState("");
   const [obstacle, setObstacle] = useState("");
   const [stake, setStake] = useState("");
+  const [endsOn, setEndsOn] = useState("");
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -70,6 +71,7 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
       cue_when: cue.trim(),
       action_then: action.trim(),
       start_date: todayIn(tz),
+      ends_on: endsOn || null,
       extras: {
         woop_outcome: outcome.trim() || undefined,
         woop_obstacle: obstacle.trim() || undefined,
@@ -192,6 +194,15 @@ export function GoalForm({ onClose, onSaved }: { onClose: () => void; onSaved: (
                   <Label>{x.fObstacle}</Label>
                   <Textarea rows={2} value={obstacle} onChange={e => setObstacle(e.target.value)} placeholder={x.fObstaclePh} />
                   <div className="text-[10px] text-[var(--muted)] mt-1.5 leading-snug">{x.fObstacleHint}</div>
+                </div>
+                <div>
+                  <Label>{x.targetDate}</Label>
+                  <Input
+                    type="date" value={endsOn}
+                    onChange={e => setEndsOn(e.target.value)}
+                    className="tabular-nums"
+                  />
+                  <div className="text-[10px] text-[var(--muted)] mt-1.5 leading-snug">{x.targetDateHint}</div>
                 </div>
                 <div>
                   <Label>{x.fStake}</Label>

@@ -23,6 +23,8 @@ export interface Goal {
   action_then: string;
   start_date: string;
   ends_on: string | null;
+  steps_total: number;
+  steps_done: number;
   status: "active" | "paused" | "archived";
   extras: Record<string, unknown>;
   created_at: string;
@@ -40,6 +42,9 @@ export interface CheckIn {
 
 const GOAL_COLS = `id, member_id, title, metric_unit, target_value::float AS target_value,
   period, cue_when, action_then, start_date::text AS start_date, ends_on::text AS ends_on,
+  (SELECT COUNT(*) FROM tracker_goal_steps st WHERE st.goal_id = tracker_goals.id)::int AS steps_total,
+  (SELECT COUNT(*) FROM tracker_goal_steps st
+    WHERE st.goal_id = tracker_goals.id AND st.done_at IS NOT NULL)::int AS steps_done,
   status, extras, created_at::text AS created_at,
   to_char(remind_at, 'HH24:MI') AS remind_at, remind_days`;
 
