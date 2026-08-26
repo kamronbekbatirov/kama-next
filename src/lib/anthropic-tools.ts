@@ -16,6 +16,7 @@ import {
 import { listSessions, revokeSession, revokeAllSessions } from "@/lib/auth";
 import { OWNER_MEMBER_ID } from "@/lib/members";
 import { getTimezone, isoDateIn, isoToday } from "@/lib/timezone";
+import { prayersForDay } from "@/lib/prayer-times";
 
 type Tool = Anthropic.Tool;
 
@@ -733,6 +734,17 @@ export const TOOL_DEFINITIONS: Tool[] = [
         tz: { type: "string", description: "IANA timezone name, e.g. 'Asia/Tashkent' or 'Europe/London'." },
       },
       required: ["tz"],
+    },
+  },
+  {
+    name: "prayer_times",
+    description:
+      "Prayer times for a date at Kamronbek's configured location. They are computed from the sun's position and differ every day, so call this rather than recalling a time from earlier in the conversation. Use it to answer 'when is Maghrib', to check whether something collides with a prayer, or to plan around one.",
+    input_schema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "ISO date YYYY-MM-DD. Defaults to today." },
+      },
     },
   },
 ];
@@ -1582,6 +1594,16 @@ export async function executeTool(name: string, input: Input): Promise<string> {
         [JSON.stringify({ tz, auto: false })],
       );
       return `Timezone set to ${tz} (manual — the dashboard will stop auto-syncing it from the device). Local date is now ${isoDateIn(tz)}.`;
+    }
+
+    case "prayer_times": {
+      const date = typeof input.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.date)
+        ? input.date
+        : await isoToday();
+      const day = await prayersForDay(date);
+      const order = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"] as const;
+      return `${date} (${day.tz}, ${day.lat.toFixed(3)}/${day.lon.toFixed(3)}):\n` +
+        order.map(k => `${k}: ${day.times[k].hhmm}`).join("\n");
     }
 
     default:

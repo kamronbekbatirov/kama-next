@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { TOOL_DEFINITIONS, executeTool } from "@/lib/anthropic-tools";
 import { getServerStatus, type ServerStatus } from "@/lib/server-status";
 import { getTimezone, isoDateIn, isoToday } from "@/lib/timezone";
+import { prayersForDay } from "@/lib/prayer-times";
 import { TRACKER_TOOL_DEFINITIONS, TRACKER_TOOL_NAMES, executeTrackerTool, type GuestContext } from "@/lib/tracker-tools";
 import { MEMBER_TOOL_DEFINITIONS, MEMBER_TOOL_NAMES, executeMemberTool } from "@/lib/member-tools";
 import { listGoals, getBoard, getWeek } from "@/lib/tracker";
@@ -63,6 +64,7 @@ interface DashboardSnapshot {
   tz: string;
   schedule: { id: string; start_min: number; end_min: number; label: string; icon: string }[];
   prayersToday: Record<string, boolean>;
+  prayerTimes: Record<string, string> | null;
   habitsList: { id: string; label: string; builtin: boolean; done: boolean }[];
   todos: { id: number; text: string; description: string | null; category: string; priority: string; status: string; created_at: string; due_at: string | null }[];
   recentlyCompletedTodos: { id: number; text: string; category: string; done_at: string }[];
@@ -192,6 +194,12 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     PRAYER_IDS.map(p => [p, !!habitsRow[p]])
   ) as Record<string, boolean>;
 
+  // Computed, not stored — and best-effort, like the server and inbox sections:
+  // a bad coordinate should cost the assistant its prayer times, not the chat.
+  const prayerTimes = await prayersForDay(dt, tz)
+    .then(x => Object.fromEntries(Object.entries(x.times).map(([k, v]) => [k, v.hhmm])))
+    .catch(() => null);
+
   // habits_list: every entry in habit_defs (the user's actual tracked list),
   // each annotated with today's completion.
   const habitsList = habitDefs.map(def => ({
@@ -209,6 +217,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     tz,
     schedule,
     prayersToday,
+    prayerTimes,
     habitsList,
     todos,
     recentlyCompletedTodos,
@@ -248,7 +257,9 @@ ${snap.schedule.length === 0 ? "(empty)" : snap.schedule.map(b =>
   ).join("\n")}`);
 
   sections.push(`# Today's habits
-- Prayers (${prayersDone}/5): ${PRAYER_IDS.map(p => `${p}=${mark(snap.prayersToday[p])}`).join(" ")}
+- Prayers (${prayersDone}/5): ${PRAYER_IDS.map(p =>
+    `${p} ${snap.prayerTimes?.[p] ?? "?"}=${mark(snap.prayersToday[p])}`).join(" ")}${
+  snap.prayerTimes ? `\n- Sunrise ${snap.prayerTimes.sunrise}. Prayer times are computed for his location and change every day — never quote one from memory or from an older turn.` : ""}
 - Tracked habits (${habitsDone}/${tracked}): ${tracked === 0
     ? "(none configured)"
     : snap.habitsList.map(h => `${h.label}[${h.id}${h.builtin ? "*" : ""}]=${mark(h.done)}`).join(", ")}
