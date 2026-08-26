@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Archive, Check, ChevronDown, ChevronUp, Pencil, Plus, Target } from "lucide-react";
+import { Archive, Check, ChevronDown, ChevronUp, Pencil, Plus, Target, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLang } from "@/components/providers";
@@ -139,6 +139,19 @@ function GoalCard({ goal, onChanged, onEdit }: { goal: Goal; onChanged: () => vo
     onChanged();
   };
 
+  const purge = async () => {
+    // The count is already on the goal row, so the confirmation can name what
+    // is about to be lost instead of asking "are you sure" about nothing.
+    const msg = goal.checkins_total || goal.steps_total
+      ? x.deleteConfirm
+          .replace("{name}", goal.title)
+          .replace("{c}", String(goal.checkins_total))
+          .replace("{s}", String(goal.steps_total))
+      : x.deleteConfirmPlain.replace("{name}", goal.title);
+    if (!(await tgConfirm(msg))) return;
+    await trackerApi.deleteGoal(goal.id);
+    onChanged();
+  };
   const archive = async () => {
     if (!(await tgConfirm(x.archiveConfirm))) return;
     await trackerApi.archiveGoal(goal.id);
@@ -309,6 +322,12 @@ function GoalCard({ goal, onChanged, onEdit }: { goal: Goal; onChanged: () => vo
           className="inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
         >
           <Archive className="h-3.5 w-3.5" /> {x.archive}
+        </button>
+        <button
+          onClick={() => void purge()}
+          className="inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)] hover:text-red-500 transition-colors cursor-pointer"
+        >
+          <Trash2 className="h-3.5 w-3.5" /> {x.deleteGoal}
         </button>
       </div>
       </>)}

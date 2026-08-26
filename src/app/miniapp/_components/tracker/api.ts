@@ -43,6 +43,9 @@ export const trackerApi = {
   removeStep: (id: number) =>
     jfetch<{ ok: boolean }>("/api/tracker/steps", json("DELETE", { id })),
 
+  deleteGoal: (id: number) =>
+    jfetch<{ ok: true } | { error: string }>("/api/tracker/goals", json("DELETE", { id, purge: true })),
+
   archiveGoal: (id: number) =>
     jfetch<{ ok: true } | { error: string }>("/api/tracker/goals", json("DELETE", { id })),
 

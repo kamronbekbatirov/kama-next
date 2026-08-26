@@ -25,6 +25,7 @@ export interface Goal {
   ends_on: string | null;
   steps_total: number;
   steps_done: number;
+  checkins_total: number;
   status: "active" | "paused" | "archived";
   extras: Record<string, unknown>;
   created_at: string;
@@ -45,6 +46,7 @@ const GOAL_COLS = `id, member_id, title, metric_unit, target_value::float AS tar
   (SELECT COUNT(*) FROM tracker_goal_steps st WHERE st.goal_id = tracker_goals.id)::int AS steps_total,
   (SELECT COUNT(*) FROM tracker_goal_steps st
     WHERE st.goal_id = tracker_goals.id AND st.done_at IS NOT NULL)::int AS steps_done,
+  (SELECT COUNT(*) FROM tracker_checkins c WHERE c.goal_id = tracker_goals.id)::int AS checkins_total,
   status, extras, created_at::text AS created_at,
   to_char(remind_at, 'HH24:MI') AS remind_at, remind_days,
   remind_interval, remind_anchor::text AS remind_anchor`;
@@ -58,6 +60,35 @@ export async function listGoals(memberId: string, archived = false): Promise<Goa
       ORDER BY created_at ASC`,
     [memberId],
   );
+}
+
+/**
+ * Delete a goal and everything hanging off it, permanently.
+ *
+ * Archiving is the reversible option and stays the default; this is the one
+ * that is not. Check-ins and steps go with it by cascade — that is the point —
+ * and a task that pointed at it merely loses the pointer.
+ *
+ * Returns what was destroyed, so the caller can say so rather than reporting a
+ * bare "ok" for an irreversible act.
+ */
+export async function deleteGoal(
+  memberId: string, id: number,
+): Promise<{ title: string; checkins: number; steps: number } | null> {
+  const before = await query<{ title: string; checkins: number; steps: number }>(
+    `SELECT g.title,
+            (SELECT COUNT(*) FROM tracker_checkins c WHERE c.goal_id = g.id)::int AS checkins,
+            (SELECT COUNT(*) FROM tracker_goal_steps st WHERE st.goal_id = g.id)::int AS steps
+       FROM tracker_goals g WHERE g.id = $1 AND g.member_id = $2`,
+    [id, memberId],
+  );
+  if (before.length === 0) return null;
+
+  const gone = await query<{ id: number }>(
+    "DELETE FROM tracker_goals WHERE id = $1 AND member_id = $2 RETURNING id",
+    [id, memberId],
+  );
+  return gone.length > 0 ? before[0] : null;
 }
 
 /**

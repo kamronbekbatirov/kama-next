@@ -11,6 +11,7 @@ export interface Goal {
   ends_on: string | null;
   steps_total: number;
   steps_done: number;
+  checkins_total: number;
   status: "active" | "paused" | "archived";
   extras: Record<string, unknown>;
   created_at: string;

@@ -1,7 +1,7 @@
 import { requireMember, UNAUTHORIZED } from "@/lib/guard";
 import { isoDateIn, getTimezone } from "@/lib/timezone";
 import {
-  listGoals, createGoal, updateGoal, archiveGoal, restoreGoal, validateGoal, setReminder, type NewGoal,
+  listGoals, createGoal, updateGoal, archiveGoal, restoreGoal, deleteGoal, validateGoal, setReminder, type NewGoal,
 } from "@/lib/tracker";
 
 export const dynamic = "force-dynamic";
@@ -105,9 +105,20 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const s = await requireMember();
-    const { id } = await req.json();
-    if (!Number.isInteger(Number(id))) return Response.json({ error: "id required" }, { status: 400 });
-    const ok = await archiveGoal(s.memberId, Number(id));
+    const body = await req.json();
+    const id = Number(body?.id);
+    if (!Number.isInteger(id)) return Response.json({ error: "id required" }, { status: 400 });
+
+    // Archiving stays the default. Deleting has to be asked for by name,
+    // because it takes the check-ins and steps with it and nothing brings
+    // them back.
+    if (body?.purge === true) {
+      const gone = await deleteGoal(s.memberId, id);
+      if (!gone) return Response.json({ error: "not_found" }, { status: 404 });
+      return Response.json({ ok: true, deleted: gone });
+    }
+
+    const ok = await archiveGoal(s.memberId, id);
     if (!ok) return Response.json({ error: "not_found" }, { status: 404 });
     return Response.json({ ok: true });
   } catch (e) {

@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import {
   listGoals, createGoal, updateGoal, archiveGoal, checkIn, removeCheckIn,
   getBoard, getWeek, goalCheckIns, validateGoal, setReminder,
-  listSteps, addStep, setStepDone, removeStep, type NewGoal,
+  listSteps, addStep, setStepDone, removeStep, deleteGoal, type NewGoal,
 } from "@/lib/tracker";
 import { isoDateIn } from "@/lib/timezone";
 
@@ -121,6 +121,16 @@ export const TRACKER_TOOL_DEFINITIONS: Anthropic.Tool[] = [
     name: "archive_goal",
     description:
       "Retire one of their goals. Its history is kept and it leaves the board. Use when someone says they are done with a goal or want to stop it — never as a reaction to missed days.",
+    input_schema: {
+      type: "object",
+      properties: { goal_id: { type: "integer" } },
+      required: ["goal_id"],
+    },
+  },
+  {
+    name: "delete_goal",
+    description:
+      "Permanently delete a goal along with every check-in and step on it. There is no undo. Prefer archive_goal, which keeps the history — only use this when they clearly ask to delete rather than archive, and say what will be lost before doing it.",
     input_schema: {
       type: "object",
       properties: { goal_id: { type: "integer" } },
@@ -329,6 +339,15 @@ export async function executeTrackerTool(
       const ok = await archiveGoal(ctx.memberId, goalId);
       return ok
         ? `Goal #${goalId} archived. Its history is kept.`
+        : `Error: no goal #${goalId} of yours`;
+    }
+
+    case "delete_goal": {
+      const goalId = asInt(input.goal_id);
+      if (!goalId) return "Error: goal_id required";
+      const gone = await deleteGoal(ctx.memberId, goalId);
+      return gone
+        ? `Deleted "${gone.title}" permanently, with ${gone.checkins} check-in(s) and ${gone.steps} step(s).`
         : `Error: no goal #${goalId} of yours`;
     }
 

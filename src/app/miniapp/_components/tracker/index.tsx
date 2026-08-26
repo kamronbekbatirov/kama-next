@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArchiveRestore, ChevronDown, ChevronRight } from "lucide-react";
+import { ArchiveRestore, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { tgConfirm } from "@/lib/telegram-webapp";
 import { Card } from "@/components/ui/card";
 import { useLang } from "@/components/providers";
 import { GroupPane } from "./group";
@@ -41,6 +42,18 @@ export function TrackerTab({ meId = null }: { meId?: string | null }) {
     bump();
   };
 
+  const purge = async (g: Goal) => {
+    const msg = g.checkins_total || g.steps_total
+      ? x.deleteConfirm
+          .replace("{name}", g.title)
+          .replace("{c}", String(g.checkins_total))
+          .replace("{s}", String(g.steps_total))
+      : x.deleteConfirmPlain.replace("{name}", g.title);
+    if (!(await tgConfirm(msg))) return;
+    await trackerApi.deleteGoal(g.id);
+    bump();
+  };
+
   return (
     <div className="flex flex-col gap-5 pt-2 animate-fade-in">
       <MinePane onNew={() => setForming(true)} onEdit={setEditing} reloadKey={reload} onChanged={bump} />
@@ -73,6 +86,13 @@ export function TrackerTab({ meId = null }: { meId?: string | null }) {
                       className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer shrink-0"
                     >
                       <ArchiveRestore className="h-3.5 w-3.5" /> {x.restore}
+                    </button>
+                    <button
+                      onClick={() => void purge(g)}
+                      aria-label={x.deleteGoal}
+                      className="text-[var(--muted)] hover:text-red-500 transition-colors cursor-pointer shrink-0 p-1 -m-1"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ))}
