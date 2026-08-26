@@ -365,16 +365,16 @@ async function handleMessage(msg: TgMessage) {
     const systemPrompt = isOwner
       ? await buildSystemPrompt()
       : await buildGuestSystemPrompt(member);
-    const result = isOwner
-      ? await runChat(systemPrompt, history, userInput)
-      : await runChat(systemPrompt, history, userInput, {
-          kind: "guest",
-          ctx: {
-            memberId: member.id,
-            displayName: member.display_name,
-            tz: member.tz ?? (await getTimezone()),
-          },
-        });
+    // Same identity either way — it is the audience kind that decides which
+    // tools exist. The owner's tracker rows are theirs like anyone else's.
+    const ctx = {
+      memberId: member.id,
+      displayName: member.display_name,
+      tz: member.tz ?? (await getTimezone()),
+    };
+    const result = await runChat(systemPrompt, history, userInput, {
+      kind: isOwner ? "owner" : "guest", ctx,
+    });
     clearInterval(typingInterval);
 
     const finalText = truncateForTelegram(result.text || "(пустой ответ)");

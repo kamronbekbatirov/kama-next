@@ -3,7 +3,8 @@ import { query } from "@/lib/db";
 import { TOOL_DEFINITIONS, executeTool } from "@/lib/anthropic-tools";
 import { getServerStatus, type ServerStatus } from "@/lib/server-status";
 import { getTimezone, isoDateIn, isoToday } from "@/lib/timezone";
-import { TRACKER_TOOL_DEFINITIONS, executeTrackerTool, type GuestContext } from "@/lib/tracker-tools";
+import { TRACKER_TOOL_DEFINITIONS, TRACKER_TOOL_NAMES, executeTrackerTool, type GuestContext } from "@/lib/tracker-tools";
+import { MEMBER_TOOL_DEFINITIONS, MEMBER_TOOL_NAMES, executeMemberTool } from "@/lib/member-tools";
 import { listGoals, getBoard, getWeek } from "@/lib/tracker";
 import type { Member } from "@/lib/members";
 
@@ -479,6 +480,10 @@ const SYSTEM_INSTRUCTIONS = `You are Kamronbek's personal assistant living insid
 
 You also have TOOLS to MODIFY anything in his dashboard. Use them whenever he asks you to add, change, complete, or delete something — don't ask for permission for routine changes. After running a tool, briefly confirm in plain language what you did. For destructive operations on substantial data (deleting whole subjects/trees, deleting many applications), confirm first if intent is ambiguous.
 
+You also run the shared goal tracker that lives inside his Tasks tab: his own goals and check-ins, the group board everyone sees, and the guest list. His goals there work like anyone else's — list_my_goals, create_goal, update_goal, check_in, set_reminder, archive_goal, goal_history — and group_summary shows how everyone is doing. list_members / invite_member / revoke_member manage who has access; an invite comes back as a one-time link to hand over.
+
+A tracker goal cannot exist without a measurable target and an if-then plan ("when <situation>, then <action>") — that is enforced by the database, so gather both before calling create_goal. Never frame a missed day as a failure or talk about broken streaks.
+
 Tool-use principles:
 - Look up IDs from the snapshot (todos #N, applications #N, schedule [id], etc.).
 - Todos live on a kanban board with three columns: "todo" / "doing" / "done". Moving a card = update_todo with the new status. Marking complete = complete_todo (auto-moves to "done").
@@ -612,16 +617,20 @@ export type UserMessageInput = string | Array<Anthropic.ContentBlockParam>;
  * owner's switch can never become reachable here by accident.
  */
 export type ChatAudience =
-  | { kind: "owner" }
+  /** The owner gets their own 54 tools PLUS the tracker's — the tracker is a
+   *  tab of theirs too — plus the guest-list tools nobody else can reach. */
+  | { kind: "owner"; ctx: GuestContext }
   | { kind: "guest"; ctx: GuestContext };
 
 export async function runChat(
   systemPrompt: SystemPrompt,
   history: ChatTurn[],
   userMessage: UserMessageInput,
-  audience: ChatAudience = { kind: "owner" },
+  audience: ChatAudience,
 ): Promise<ChatResult> {
-  const tools = audience.kind === "owner" ? TOOL_DEFINITIONS : TRACKER_TOOL_DEFINITIONS;
+  const tools = audience.kind === "owner"
+    ? [...TOOL_DEFINITIONS, ...TRACKER_TOOL_DEFINITIONS, ...MEMBER_TOOL_DEFINITIONS]
+    : TRACKER_TOOL_DEFINITIONS;
   // Cache the tool list + the invariant instructions. The breakpoint sits at the
   // end of the stable block, and everything the API hashes before it (tools,
   // then this text) is reused across turns. README claimed this was on; it was
@@ -679,9 +688,18 @@ export async function runChat(
       let resultText: string;
       let isError = false;
       try {
-        resultText = audience.kind === "owner"
-          ? await executeTool(block.name, block.input as Record<string, unknown>)
-          : await executeTrackerTool(block.name, block.input as Record<string, unknown>, audience.ctx);
+        const args = block.input as Record<string, unknown>;
+        if (audience.kind === "guest") {
+          // One dispatcher, one default branch. Nothing here can reach the
+          // owner's tools even if a name collides.
+          resultText = await executeTrackerTool(block.name, args, audience.ctx);
+        } else if (MEMBER_TOOL_NAMES.has(block.name)) {
+          resultText = await executeMemberTool(block.name, args);
+        } else if (TRACKER_TOOL_NAMES.has(block.name)) {
+          resultText = await executeTrackerTool(block.name, args, audience.ctx);
+        } else {
+          resultText = await executeTool(block.name, args);
+        }
       } catch (e) {
         resultText = "Error: " + (e instanceof Error ? e.message : String(e));
         isError = true;

@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import {
-  listGoals, createGoal, checkIn, removeCheckIn, getBoard, getWeek,
-  validateGoal, setReminder, type NewGoal,
+  listGoals, createGoal, updateGoal, archiveGoal, checkIn, removeCheckIn,
+  getBoard, getWeek, goalCheckIns, validateGoal, setReminder, type NewGoal,
 } from "@/lib/tracker";
 import { isoDateIn } from "@/lib/timezone";
 
@@ -87,6 +87,51 @@ export const TRACKER_TOOL_DEFINITIONS: Anthropic.Tool[] = [
           items: { type: "integer", minimum: 1, maximum: 7 },
           description: "ISO weekdays (1=Mon … 7=Sun). Omit for every day.",
         },
+      },
+      required: ["goal_id"],
+    },
+  },
+  {
+    name: "update_goal",
+    description:
+      "Change an existing goal of theirs. Only the fields passed are touched. Use this rather than creating a second goal when someone wants to raise a target, reword their if-then plan, or add the obstacle and stake they skipped at first.",
+    input_schema: {
+      type: "object",
+      properties: {
+        goal_id: { type: "integer" },
+        title: { type: "string" },
+        metric_unit: { type: "string" },
+        target_value: { type: "number" },
+        period: { type: "string", enum: ["day", "week"] },
+        cue_when: { type: "string", description: "The situation alone, with no leading \"when\"/\"когда\"." },
+        action_then: { type: "string" },
+        woop_outcome: { type: "string" },
+        woop_obstacle: { type: "string" },
+        stake: { type: "string" },
+      },
+      required: ["goal_id"],
+    },
+  },
+  {
+    name: "archive_goal",
+    description:
+      "Retire one of their goals. Its history is kept and it leaves the board. Use when someone says they are done with a goal or want to stop it — never as a reaction to missed days.",
+    input_schema: {
+      type: "object",
+      properties: { goal_id: { type: "integer" } },
+      required: ["goal_id"],
+    },
+  },
+  {
+    name: "goal_history",
+    description:
+      "The days one of their goals was logged, within a date range. Use to answer 'how have I been doing' with the actual days rather than a guess.",
+    input_schema: {
+      type: "object",
+      properties: {
+        goal_id: { type: "integer" },
+        from: { type: "string", description: "ISO date YYYY-MM-DD. Default 30 days ago." },
+        to: { type: "string", description: "ISO date YYYY-MM-DD. Default today." },
       },
       required: ["goal_id"],
     },
@@ -188,6 +233,59 @@ export async function executeTrackerTool(
         : "Reminder turned off.";
     }
 
+    case "update_goal": {
+      const goalId = asInt(input.goal_id);
+      if (!goalId) return "Error: goal_id required";
+      const patch: Partial<NewGoal> = {};
+      if (asStr(input.title)) patch.title = asStr(input.title)!;
+      if (asStr(input.metric_unit)) patch.metricUnit = asStr(input.metric_unit)!;
+      if (input.target_value !== undefined) {
+        const v = Number(input.target_value);
+        if (!Number.isFinite(v) || v <= 0) return "Error: target_value must be greater than 0";
+        patch.targetValue = v;
+      }
+      if (input.period === "day" || input.period === "week") patch.period = input.period;
+      if (asStr(input.cue_when)) patch.cueWhen = asStr(input.cue_when)!;
+      if (asStr(input.action_then)) patch.actionThen = asStr(input.action_then)!;
+
+      // extras are stored whole, so a partial edit has to be merged onto what
+      // is already there or the untouched fields would be dropped.
+      const woop = ["woop_outcome", "woop_obstacle", "stake"] as const;
+      if (woop.some(k => asStr(input[k]) !== null)) {
+        const mine = await listGoals(ctx.memberId);
+        const current = mine.find(g => Number(g.id) === goalId);
+        if (!current) return `Error: no goal #${goalId} of yours`;
+        patch.extras = { ...(current.extras ?? {}) };
+        for (const k of woop) {
+          const v = asStr(input[k]);
+          if (v !== null) (patch.extras as Record<string, unknown>)[k] = v;
+        }
+      }
+
+      const ok = await updateGoal(ctx.memberId, goalId, patch);
+      return ok ? `Goal #${goalId} updated.` : `Error: no goal #${goalId} of yours`;
+    }
+
+    case "archive_goal": {
+      const goalId = asInt(input.goal_id);
+      if (!goalId) return "Error: goal_id required";
+      const ok = await archiveGoal(ctx.memberId, goalId);
+      return ok
+        ? `Goal #${goalId} archived. Its history is kept.`
+        : `Error: no goal #${goalId} of yours`;
+    }
+
+    case "goal_history": {
+      const goalId = asInt(input.goal_id);
+      if (!goalId) return "Error: goal_id required";
+      const to = asStr(input.to) ?? today;
+      const from = asStr(input.from) ?? isoDateIn(ctx.tz, new Date(Date.parse(to) - 29 * 864e5));
+      const rows = await goalCheckIns(ctx.memberId, goalId, from, to);
+      if (rows.length === 0) return `No days logged between ${from} and ${to}.`;
+      return `${rows.length} day(s) logged between ${from} and ${to}:\n` +
+        rows.map(r => `${r.day}: ${r.value}${r.note ? ` (${r.note})` : ""}`).join("\n");
+    }
+
     case "group_summary": {
       const [board, week] = await Promise.all([getBoard(today, 30), getWeek(today)]);
       const weekLine = week.map(w => `${w.display_name}: ${w.done} this week`).join(" · ");
@@ -202,3 +300,4 @@ export async function executeTrackerTool(
       return `Error: unknown tool "${name}"`;
   }
 }
+export const TRACKER_TOOL_NAMES = new Set(TRACKER_TOOL_DEFINITIONS.map(t => t.name));
