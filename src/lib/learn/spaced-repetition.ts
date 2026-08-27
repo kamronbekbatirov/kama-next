@@ -69,3 +69,43 @@ export function masteryFromState(ease: number, interval: number): number {
   const easeScore = Math.max(0, Math.min(1, (ease - EASE_FLOOR) / (EASE_CEIL - EASE_FLOOR)));
   return Math.round((intervalScore * 0.7 + easeScore * 0.3) * 100);
 }
+
+/**
+ * The state a node starts in, before any recall has been logged.
+ *
+ * Named rather than repeated, because undoing back to zero has to land on
+ * exactly the values a fresh node has — otherwise "undo" leaves a node that
+ * looks untouched but schedules differently.
+ */
+export const INITIAL_SR = { ease_factor: 2.5, interval_days: 0 } as const;
+
+/**
+ * Recompute a node's state from its full history of recalls.
+ *
+ * Replay rather than arithmetic in reverse: the update is lossy (a score of 2
+ * resets ease to a constant, so the previous value is unrecoverable), and each
+ * step depends on when it happened. Replaying with the original timestamps
+ * reproduces the state exactly.
+ */
+export function replaySessions(
+  sessions: { recall_score: RecallScore; created_at: Date }[],
+): { ease_factor: number; interval_days: number; next_review: Date | null;
+     status: "not_started" | "learning" | "reviewing" | "mastered"; mastery: number } {
+  let state: { ease_factor: number; interval_days: number } = { ...INITIAL_SR };
+  let next: Date | null = null;
+  let status: "not_started" | "learning" | "reviewing" | "mastered" = "not_started";
+
+  for (const s of sessions) {
+    const step = computeNextReview(state, s.recall_score, s.created_at);
+    state = { ease_factor: step.ease_factor, interval_days: step.interval_days };
+    next = step.next_review;
+    status = statusFromHistory(s.recall_score, status);
+  }
+
+  return {
+    ...state,
+    next_review: next,
+    status,
+    mastery: sessions.length === 0 ? 0 : masteryFromState(state.ease_factor, state.interval_days),
+  };
+}

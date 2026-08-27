@@ -698,6 +698,20 @@ function NodeDetailSheet({
                       <Badge variant={s.recall_score >= 4 ? "success" : s.recall_score >= 2 ? "warning" : "danger"}>
                         {l.tree.score} {s.recall_score}
                       </Badge>
+                      {/* Grading moved ease, interval, next review, status and
+                          mastery at once, and nothing took it back. */}
+                      <button
+                        onClick={async () => {
+                          if (!(await tgConfirm(l.tree.undoRecallConfirm))) return;
+                          await learnApi.undoSession(s.id);
+                          const rows = await learnApi.listSessions(node.id);
+                          setSessions(Array.isArray(rows) ? rows : []);
+                          await onUpdated();
+                        }}
+                        className="ml-auto text-[10px] text-[var(--muted)] hover:text-red-500 underline underline-offset-4 cursor-pointer shrink-0"
+                      >
+                        {l.tree.undoRecall}
+                      </button>
                     </div>
                   ))}
                 </div>

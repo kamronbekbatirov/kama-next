@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { query } from "@/lib/db";
 import { getServerStatus } from "@/lib/server-status";
-import { computeNextReview, masteryFromState, statusFromHistory, type RecallScore } from "@/lib/learn/spaced-repetition";
+import { computeNextReview, masteryFromState, statusFromHistory, replaySessions, type RecallScore } from "@/lib/learn/spaced-repetition";
 import { SCHEDULE_ICON_KEYS, resolveIconKey } from "@/lib/schedule-icons";
 import { markdownToHtml } from "@/lib/notes-format";
 import { deleteStoredFile } from "@/lib/uploads";
@@ -744,6 +744,18 @@ export const TOOL_DEFINITIONS: Tool[] = [
       type: "object",
       properties: {
         date: { type: "string", description: "ISO date YYYY-MM-DD. Defaults to today." },
+      },
+    },
+  },
+  {
+    name: "undo_recall_session",
+    description:
+      "Undo a logged recall on a learn node. Pass node_id to take back the most recent one. The node's ease, interval, next review, status and mastery are recomputed from the recalls that remain, so it lands exactly where it was before. Use when he says he graded something by mistake.",
+    input_schema: {
+      type: "object",
+      properties: {
+        node_id: { type: "integer" },
+        session_id: { type: "integer", description: "A specific session, if not the latest." },
       },
     },
   },
@@ -1604,6 +1616,35 @@ export async function executeTool(name: string, input: Input): Promise<string> {
       const order = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"] as const;
       return `${date} (${day.tz}, ${day.lat.toFixed(3)}/${day.lon.toFixed(3)}):\n` +
         order.map(k => `${k}: ${day.times[k].hhmm}`).join("\n");
+    }
+
+    case "undo_recall_session": {
+      const nodeId = asInt(input.node_id);
+      const sessionId = asInt(input.session_id);
+      if (!nodeId && !sessionId) return "Error: node_id or session_id required";
+      const target = sessionId
+        ? await query<{ id: number; node_id: number }>(
+            "SELECT id, node_id FROM learn_sessions WHERE id = $1", [sessionId])
+        : await query<{ id: number; node_id: number }>(
+            "SELECT id, node_id FROM learn_sessions WHERE node_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1",
+            [nodeId]);
+      if (target.length === 0) return "Error: no recall session found";
+
+      const node = target[0].node_id;
+      await query("DELETE FROM learn_sessions WHERE id = $1", [target[0].id]);
+      const rest = await query<{ recall_score: number; created_at: string }>(
+        "SELECT recall_score, created_at FROM learn_sessions WHERE node_id = $1 ORDER BY created_at ASC, id ASC",
+        [node]);
+      const st = replaySessions(rest.map(r => ({
+        recall_score: r.recall_score as RecallScore, created_at: new Date(r.created_at),
+      })));
+      await query(
+        `UPDATE learn_nodes SET ease_factor = $2, interval_days = $3, next_review = $4,
+                                status = $5, mastery_percent = $6, updated_at = NOW()
+          WHERE id = $1`,
+        [node, st.ease_factor, st.interval_days, st.next_review, st.status, st.mastery],
+      );
+      return `Undone. Node #${node} is back at ${st.mastery}% (${st.status}), ${rest.length} recall(s) left.`;
     }
 
     default:

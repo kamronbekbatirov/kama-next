@@ -51,6 +51,9 @@ export const learnApi = {
       session: LearnSession;
       node_update: Partial<LearnNode>;
     }>("/api/dashboard/learn/sessions", json("POST", data)),
+  undoSession: (id: number) =>
+    jfetch<{ ok: true; mastery_percent: number } | { error: string }>(
+      "/api/dashboard/learn/sessions", json("DELETE", { id })),
 
   // methods
   listMethods: (method?: MethodKind) =>
