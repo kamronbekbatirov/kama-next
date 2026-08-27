@@ -492,6 +492,8 @@ const SYSTEM_INSTRUCTIONS = `You are Kamronbek's personal assistant living insid
 
 You also have TOOLS to MODIFY anything in his dashboard. Use them whenever he asks you to add, change, complete, or delete something — don't ask for permission for routine changes. After running a tool, briefly confirm in plain language what you did. For destructive operations on substantial data (deleting whole subjects/trees, deleting many applications), confirm first if intent is ambiguous.
 
+You can search the web with web_search, and read a page he has linked with web_fetch. Use search when the answer depends on how the world is *now* — a course syllabus, a price, a release, anything dated — rather than answering from memory and hoping. Say plainly when something came from a search, and if a search turns up nothing usable, say that instead of filling the gap.
+
 You can set reminders for him with create_reminder — any time, any weekday pattern, or a single date — and list or remove them. Use it whenever he asks to be reminded of something.
 
 You also run the shared goal tracker that lives inside his Tasks tab: his own goals and check-ins, the group board everyone sees, and the guest list. His goals there work like anyone else's — list_my_goals, create_goal, update_goal, check_in, set_reminder, archive_goal, goal_history — and group_summary shows how everyone is doing. list_members / invite_member / revoke_member manage who has access; an invite comes back as a one-time link to hand over.
@@ -632,6 +634,25 @@ export type UserMessageInput = string | Array<Anthropic.ContentBlockParam>;
  * dispatcher — not a filtered view of the owner's, so a tool added to the
  * owner's switch can never become reachable here by accident.
  */
+/**
+ * Anthropic's own server-side tools: they run on Anthropic's infrastructure and
+ * their results arrive inside the same response, so there is nothing for the
+ * dispatcher below to execute.
+ *
+ * Owner only. A guest's assistant is deliberately confined to the tracker, and
+ * a search tool is both a way out of that and a bill.
+ *
+ * `code_execution` is NOT declared alongside these: the 2026 variants run it
+ * internally for result filtering, and a second execution environment only
+ * confuses the model.
+ */
+const SERVER_TOOLS: Anthropic.ToolUnion[] = [
+  { type: "web_search_20260209", name: "web_search", max_uses: 6 },
+  // Only ever fetches a URL already present in the conversation — it cannot go
+  // wandering, so it is safe to pair with search.
+  { type: "web_fetch_20260209", name: "web_fetch", max_uses: 4 },
+];
+
 export type ChatAudience =
   /** The owner gets their own 54 tools PLUS the tracker's — the tracker is a
    *  tab of theirs too — plus the guest-list tools nobody else can reach. */
@@ -648,7 +669,7 @@ export async function runChat(
   // from the model, so a guest can only ever address their own.
   const tools = audience.kind === "owner"
     ? [...TOOL_DEFINITIONS, ...TRACKER_TOOL_DEFINITIONS, ...MEMBER_TOOL_DEFINITIONS,
-       ...REMINDER_TOOL_DEFINITIONS]
+       ...REMINDER_TOOL_DEFINITIONS, ...SERVER_TOOLS]
     : [...TRACKER_TOOL_DEFINITIONS, ...REMINDER_TOOL_DEFINITIONS];
   // Cache the tool list + the invariant instructions. The breakpoint sits at the
   // end of the stable block, and everything the API hashes before it (tools,
@@ -689,6 +710,12 @@ export async function runChat(
     // Append assistant turn to messages for the next iteration
     messages.push({ role: "assistant", content: response.content });
 
+    // A server tool that ran long enough to pause the turn: the work is not
+    // finished, and returning here would hand back a half-written answer.
+    // Everything needed to continue is already in the assistant turn we just
+    // pushed, so the next iteration simply asks it to carry on.
+    if (response.stop_reason === "pause_turn") continue;
+
     if (response.stop_reason !== "tool_use") {
       // End of conversation
       const text = response.content
@@ -703,6 +730,12 @@ export async function runChat(
     // Execute all tool_use blocks in this response
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of response.content) {
+      // Anthropic already ran these and put the results in this same response;
+      // recorded only so the reply can say the web was actually consulted.
+      if (block.type === "server_tool_use") {
+        toolCalls.push({ name: block.name, input: block.input, result: "(server-side)" });
+        continue;
+      }
       if (block.type !== "tool_use") continue;
       let resultText: string;
       let isError = false;
