@@ -5,7 +5,7 @@ import { useLang } from "@/components/providers";
 import { LangToggle } from "@/components/lang-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
-import { ArrowDownRight, Github, Linkedin, Mail, ExternalLink, ChevronDown } from "lucide-react";
+import { ArrowDownRight, Github, Linkedin, ExternalLink, ChevronDown, Send } from "lucide-react";
 
 // ─── CONTACT FORM ──────────────────────────────────────────
 function ContactForm() {
@@ -172,7 +172,7 @@ export default function PortfolioPage() {
             <ThemeToggle />
             <LangToggle />
           </div>
-          <a href="mailto:hi@kama.uz"
+          <a href="#contact"
             className="hidden md:flex h-8 px-4 items-center bg-[var(--foreground)] text-[var(--background)] text-[10px] font-black uppercase tracking-[0.15em] hover:opacity-75 transition-opacity">
             {t.nav.hire}
           </a>
@@ -189,7 +189,7 @@ export default function PortfolioPage() {
                 {l.label}
               </a>
             ))}
-            <a href="mailto:hi@kama.uz"
+            <a href="#contact"
               className="inline-flex h-9 px-5 items-center bg-[var(--foreground)] text-[var(--background)] text-[10px] font-black uppercase tracking-[0.15em] mt-2">
               {t.nav.hire}
             </a>
@@ -240,9 +240,9 @@ export default function PortfolioPage() {
                 className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] font-black border border-[var(--card-border)] h-10 px-5 hover:bg-[var(--muted-bg)] transition-colors">
                 {t.hero.viewProjects} <ArrowDownRight size={12} />
               </a>
-              <a href="mailto:hi@kama.uz"
+              <a href="#contact"
                 className="flex items-center h-10 px-5 bg-[var(--foreground)] text-[var(--background)] text-[10px] uppercase tracking-[0.18em] font-black hover:opacity-75 transition-opacity">
-                hi@kama.uz
+                {t.nav.hire}
               </a>
             </div>
           </div>
@@ -489,10 +489,7 @@ export default function PortfolioPage() {
           >
             {t.contact.title}
           </h2>
-          <a href="mailto:hi@kama.uz"
-            className="inline-block text-base font-bold text-[var(--muted)] hover:text-[var(--foreground)] transition-colors mb-14 underline underline-offset-4">
-            hi@kama.uz
-          </a>
+          <p className="text-base font-bold text-[var(--muted)] mb-14">{t.contact.sub}</p>
 
           <div className="grid md:grid-cols-2 gap-16">
             <ContactForm />
@@ -502,7 +499,7 @@ export default function PortfolioPage() {
                 {[
                   { href: "https://github.com/kamronbekbatirov", icon: Github, label: "github.com/kamronbekbatirov" },
                   { href: "https://linkedin.com/in/kamronbekbatirov", icon: Linkedin, label: "linkedin.com/in/kamronbekbatirov" },
-                  { href: "mailto:hi@kama.uz", icon: Mail, label: "hi@kama.uz" },
+                  { href: "https://t.me/kamronbat", icon: Send, label: "t.me/kamronbat" },
                 ].map(({ href, icon: Icon, label }) => (
                   <a key={href} href={href} target={href.startsWith("http") ? "_blank" : undefined}
                     rel="noopener noreferrer"
