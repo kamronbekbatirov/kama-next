@@ -1,5 +1,5 @@
 import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
-import { getPlan, addToPlan, removeFromPlan } from "@/lib/food";
+import { getPlan, addToPlan, removeFromPlan, getWeekPlan, addToWeekPlan } from "@/lib/food";
 import { isoToday } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,9 @@ export async function GET(req: Request) {
   try {
     await requireOwner();
     const p = new URL(req.url).searchParams;
+    // The weekly routine is the default view; dated planning stays for the rows
+    // that already use it.
+    if (p.get("week") === "1") return Response.json(await getWeekPlan());
     const today = await isoToday();
     const from = ISO.test(p.get("from") ?? "") ? p.get("from")! : today;
     const to = ISO.test(p.get("to") ?? "") ? p.get("to")! : from;
@@ -28,9 +31,18 @@ export async function POST(req: Request) {
   try {
     await requireOwner();
     const b = await req.json();
-    const day = ISO.test(String(b?.day)) ? String(b.day) : await isoToday();
     const slot = SLOTS.has(String(b?.slot)) ? String(b.slot) : null;
     if (!slot) return Response.json({ error: "slot required" }, { status: 400 });
+
+    const wd = Number(b?.weekday);
+    if (Number.isInteger(wd) && wd >= 1 && wd <= 7) {
+      const dishId = Number(b?.dish_id);
+      if (!Number.isInteger(dishId)) return Response.json({ error: "dish_id required" }, { status: 400 });
+      await addToWeekPlan(wd, slot, dishId);
+      return Response.json({ ok: true });
+    }
+
+    const day = ISO.test(String(b?.day)) ? String(b.day) : await isoToday();
     const dishId = Number.isInteger(b?.dish_id) ? Number(b.dish_id) : null;
     if (!dishId && !b?.note) return Response.json({ error: "dish_id or note required" }, { status: 400 });
     const row = await addToPlan(day, slot, dishId, b?.note ?? null);

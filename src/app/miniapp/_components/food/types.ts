@@ -15,7 +15,7 @@ export type Slot = "breakfast" | "lunch" | "dinner" | "snack";
 export const SLOTS: Slot[] = ["breakfast", "lunch", "dinner", "snack"];
 
 export interface PlanRow {
-  id: number; day: string; slot: Slot;
+  id: number; day: string | null; weekday: number | null; slot: Slot;
   dish_id: number | null; dish_name: string | null; kcal: number | null; note: string | null;
 }
 

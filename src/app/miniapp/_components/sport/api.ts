@@ -26,9 +26,15 @@ export const sportApi = {
   removeSet: (set_id: number) => j<{ ok: true }>(`${B}/workouts`, body("DELETE", { set_id })),
   removeWorkout: (id: number) => j<{ ok: true }>(`${B}/workouts`, body("DELETE", { id })),
 
+  week: () => j<{ weekday: number; block: Block }[]>(`${B}/week`),
+  weekday: (weekday: number) => j<{ block: Block; exercises: Exercise[] }[]>(`${B}/week?weekday=${weekday}`),
+  setWeekBlock: (weekday: number, block: Block, on: boolean) =>
+    j<{ ok: true }>(`${B}/week`, body("POST", { weekday, block, on })),
+
   body: () => j<Measurement[]>(`${B}/body`),
   saveBody: (m: { day?: string; weight_kg?: number; height_cm?: number; note?: string }) =>
     j<Measurement>(`${B}/body`, body("POST", m)),
+  removeBody: (day: string) => j<{ ok: true }>(`${B}/body`, body("DELETE", { day })),
 };
 
 /** "70 кг × 12", "40 сек", "12" — whichever the movement is actually measured in. */

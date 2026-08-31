@@ -1,5 +1,5 @@
 import { requireOwner, UNAUTHORIZED } from "@/lib/guard";
-import { listMeasurements, saveMeasurement } from "@/lib/sport";
+import { listMeasurements, saveMeasurement, deleteMeasurement } from "@/lib/sport";
 import { isoToday } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +26,23 @@ export async function POST(req: Request) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === "unauthorized") return UNAUTHORIZED();
     console.error("sport/body:", msg);
+    return Response.json({ error: "error" }, { status: 500 });
+  }
+}
+
+/** Remove a weigh-in. A number typed wrong is the commonest thing to fix. */
+export async function DELETE(req: Request) {
+  try {
+    await requireOwner();
+    const b = await req.json();
+    const day = String(b?.day ?? "");
+    if (!ISO.test(day)) return Response.json({ error: "day required" }, { status: 400 });
+    const ok = await deleteMeasurement(day);
+    return ok ? Response.json({ ok: true }) : Response.json({ error: "not_found" }, { status: 404 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "unauthorized") return UNAUTHORIZED();
+    console.error("sport/body DELETE:", msg);
     return Response.json({ error: "error" }, { status: 500 });
   }
 }

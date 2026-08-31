@@ -106,19 +106,51 @@ export async function deleteDish(id: number): Promise<boolean> {
 /* ── Plan ─────────────────────────────────────────────────────────────── */
 
 export interface PlanRow {
-  id: number; day: string; slot: string;
+  id: number; day: string | null; weekday: number | null; slot: string;
   dish_id: number | null; dish_name: string | null; kcal: number | null; note: string | null;
+}
+
+const PLAN_COLS = `p.id, p.day::text AS day, p.weekday, p.slot, p.dish_id,
+  d.name AS dish_name, d.kcal, p.note`;
+const SLOT_ORDER = `CASE p.slot WHEN 'breakfast' THEN 1 WHEN 'lunch' THEN 2
+                                WHEN 'dinner' THEN 3 ELSE 4 END`;
+
+/**
+ * The weekly plan, keyed by weekday.
+ *
+ * A meal plan is a routine, not a calendar — "Monday is oats" stays true next
+ * month, and planning it date by date would mean retyping the same week
+ * forever.
+ */
+export async function getWeekPlan(): Promise<PlanRow[]> {
+  return query<PlanRow>(
+    `SELECT ${PLAN_COLS} FROM food_plan p LEFT JOIN food_dishes d ON d.id = p.dish_id
+      WHERE p.weekday IS NOT NULL ORDER BY p.weekday, ${SLOT_ORDER}`);
+}
+
+/** What is planned for one weekday — used by "today". */
+export async function getPlanForWeekday(weekday: number): Promise<PlanRow[]> {
+  return query<PlanRow>(
+    `SELECT ${PLAN_COLS} FROM food_plan p LEFT JOIN food_dishes d ON d.id = p.dish_id
+      WHERE p.weekday = $1 ORDER BY ${SLOT_ORDER}`, [weekday]);
 }
 
 export async function getPlan(from: string, to: string): Promise<PlanRow[]> {
   return query<PlanRow>(
-    `SELECT p.id, p.day::text AS day, p.slot, p.dish_id, d.name AS dish_name, d.kcal, p.note
-       FROM food_plan p LEFT JOIN food_dishes d ON d.id = p.dish_id
-      WHERE p.day BETWEEN $1::date AND $2::date
-      ORDER BY p.day, CASE p.slot WHEN 'breakfast' THEN 1 WHEN 'lunch' THEN 2
-                                  WHEN 'dinner' THEN 3 ELSE 4 END`,
+    `SELECT ${PLAN_COLS} FROM food_plan p LEFT JOIN food_dishes d ON d.id = p.dish_id
+      WHERE p.day BETWEEN $1::date AND $2::date ORDER BY p.day, ${SLOT_ORDER}`,
     [from, to],
   );
+}
+
+export async function addToWeekPlan(weekday: number, slot: string, dishId: number) {
+  const rows = await query<{ id: number }>(
+    `INSERT INTO food_plan (weekday, slot, dish_id) VALUES ($1,$2,$3)
+     ON CONFLICT (weekday, slot, dish_id) WHERE weekday IS NOT NULL DO NOTHING
+     RETURNING id`,
+    [weekday, slot, dishId],
+  );
+  return rows[0] ?? null;
 }
 
 export async function addToPlan(day: string, slot: string, dishId: number | null, note?: string | null) {

@@ -35,6 +35,9 @@ export const foodApi = {
   removeEntry: (id: number) => j<{ ok: true }>(`${B}/diary`, body("DELETE", { id })),
 
   plan: (from: string, to: string) => j<PlanRow[]>(`${B}/plan?from=${from}&to=${to}`),
+  weekPlan: () => j<PlanRow[]>(`${B}/plan?week=1`),
+  addWeekPlan: (weekday: number, slot: Slot, dish_id: number) =>
+    j<{ ok: true } | { error: string }>(`${B}/plan`, body("POST", { weekday, slot, dish_id })),
   addPlan: (day: string, slot: Slot, dish_id: number) =>
     j<{ id: number } | { error: string }>(`${B}/plan`, body("POST", { day, slot, dish_id })),
   removePlan: (id: number) => j<{ ok: true }>(`${B}/plan`, body("DELETE", { id })),

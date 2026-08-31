@@ -7,7 +7,8 @@ import { useLang } from "@/components/providers";
 import { todayIn, fmtDay, localeOf } from "../_shared";
 import { useTimezone } from "../timezone";
 import { SectionHeader, EmptyState } from "../dashboard-ui";
-import { haptic } from "@/lib/telegram-webapp";
+import { Pencil, X } from "lucide-react";
+import { haptic, tgConfirm } from "@/lib/telegram-webapp";
 import { sportApi, fmtSet } from "./api";
 import type { Best, Measurement } from "./types";
 
@@ -22,6 +23,8 @@ export function SportBody({ reloadKey, onChanged }: { reloadKey: number; onChang
   const [bests, setBests] = useState<Best[]>([]);
   const [weight, setWeight] = useState("");
   const [height, setHeight] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState("");
 
   const load = useCallback(() => {
     sportApi.body().then(r => {
@@ -41,6 +44,21 @@ export function SportBody({ reloadKey, onChanged }: { reloadKey: number; onChang
     await sportApi.saveBody({ day, weight_kg: w, height_cm: h });
     haptic.success();
     setWeight("");
+    load(); onChanged();
+  };
+
+  // A weigh-in typed wrong is the commonest thing to fix, so each row can be
+  // corrected in place or removed rather than living on as a false data point.
+  const saveEdit = async (day2: string) => {
+    const w = Number(editVal);
+    if (!Number.isFinite(w) || w <= 0) return;
+    await sportApi.saveBody({ day: day2, weight_kg: w });
+    setEditing(null);
+    load(); onChanged();
+  };
+  const removeRow = async (day2: string) => {
+    if (!(await tgConfirm(s.removeMeasure))) return;
+    await sportApi.removeBody(day2);
     load(); onChanged();
   };
 
@@ -84,9 +102,36 @@ export function SportBody({ reloadKey, onChanged }: { reloadKey: number; onChang
                 <span className="text-[11px] text-[var(--muted)] w-20 shrink-0">
                   {fmtDay(m.day, localeOf(lang), { day: "numeric", month: "short" })}
                 </span>
-                <span className="text-sm tabular-nums flex-1">{m.weight_kg ?? "—"} кг</span>
-                {m.height_cm && (
-                  <span className="text-[11px] tabular-nums text-[var(--muted)]">{m.height_cm} см</span>
+                {editing === m.day ? (
+                  <>
+                    <Input
+                      type="number" inputMode="decimal" value={editVal} autoFocus
+                      onChange={e => setEditVal(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") void saveEdit(m.day); }}
+                      className="h-8 w-24 text-sm tabular-nums"
+                    />
+                    <button onClick={() => void saveEdit(m.day)}
+                      className="text-[11px] font-semibold cursor-pointer">{s.saveBody}</button>
+                    <button onClick={() => setEditing(null)}
+                      className="text-[11px] text-[var(--muted)] cursor-pointer">×</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm tabular-nums flex-1">{m.weight_kg ?? "—"} кг</span>
+                    {m.height_cm && (
+                      <span className="text-[11px] tabular-nums text-[var(--muted)]">{m.height_cm} см</span>
+                    )}
+                    <button
+                      onClick={() => { setEditing(m.day); setEditVal(String(m.weight_kg ?? "")); }}
+                      aria-label={s.editWeight}
+                      className="shrink-0 p-1 -m-1 text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer">
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                    <button onClick={() => void removeRow(m.day)} aria-label={s.remove}
+                      className="shrink-0 p-1 -m-1 text-[var(--muted)] hover:text-red-500 cursor-pointer">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </>
                 )}
               </div>
             ))}

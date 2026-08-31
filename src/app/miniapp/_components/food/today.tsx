@@ -42,7 +42,11 @@ export function FoodToday({ reloadKey, onChanged }: { reloadKey: number; onChang
       setEntries(d.entries);
       setTotal(d.total);
     }).catch(() => {});
-    foodApi.plan(day, day).then(p => { if (Array.isArray(p)) setPlan(p); }).catch(() => {});
+    // The plan is weekly, so today's meals come from today's weekday.
+    const wd = ((new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
+    foodApi.weekPlan()
+      .then(p => { if (Array.isArray(p)) setPlan(p.filter(r => r.weekday === wd)); })
+      .catch(() => {});
   }, [day]);
   useEffect(load, [load, reloadKey]);
 

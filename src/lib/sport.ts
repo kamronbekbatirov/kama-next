@@ -171,3 +171,48 @@ export async function saveMeasurement(m: {
     [m.day, m.weight ?? null, m.height ?? null, m.note ?? null]);
   return r[0] ?? null;
 }
+
+/* ── Weekly plan ──────────────────────────────────────────────────────── */
+
+/**
+ * Which programme blocks run on which weekday.
+ *
+ * Keyed by weekday rather than date: a training week is a routine, and planning
+ * it date by date would mean re-entering the same thing every week. ISO
+ * numbering, Monday = 1, matching remind_days and EXTRACT(ISODOW).
+ */
+export async function getWeekPlan(): Promise<{ weekday: number; block: Block }[]> {
+  return query<{ weekday: number; block: Block }>(
+    "SELECT weekday, block FROM sport_week ORDER BY weekday, position, block");
+}
+
+export async function setWeekBlock(weekday: number, block: Block, on: boolean): Promise<boolean> {
+  if (weekday < 1 || weekday > 7) return false;
+  if (on) {
+    await query(
+      `INSERT INTO sport_week (weekday, block, position)
+       VALUES ($1,$2,COALESCE((SELECT MAX(position)+1 FROM sport_week WHERE weekday=$1),0))
+       ON CONFLICT (weekday, block) DO NOTHING`, [weekday, block]);
+  } else {
+    await query("DELETE FROM sport_week WHERE weekday=$1 AND block=$2", [weekday, block]);
+  }
+  return true;
+}
+
+/** The blocks due on a given weekday, with their exercises. */
+export async function planForWeekday(weekday: number): Promise<{ block: Block; exercises: Exercise[] }[]> {
+  const blocks = await query<{ block: Block }>(
+    "SELECT block FROM sport_week WHERE weekday = $1 ORDER BY position, block", [weekday]);
+  if (blocks.length === 0) return [];
+  const all = await listExercises();
+  return blocks.map(b => ({ block: b.block, exercises: all.filter(e => e.block === b.block) }));
+}
+
+/* ── Editing measurements ─────────────────────────────────────────────── */
+
+/** Correct a weigh-in. A number typed wrong is the commonest thing to fix. */
+export async function deleteMeasurement(day: string): Promise<boolean> {
+  const r = await query<{ day: string }>(
+    "DELETE FROM sport_measurements WHERE day = $1::date RETURNING day::text AS day", [day]);
+  return r.length > 0;
+}

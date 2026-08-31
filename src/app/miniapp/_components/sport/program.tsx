@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { PauseCircle, PlayCircle, Plus, Trash2 } from "lucide-react";
+import { PauseCircle, Pencil, PlayCircle, Plus, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLang } from "@/components/providers";
@@ -24,6 +24,7 @@ export function SportProgram({ reloadKey, onChanged }: { reloadKey: number; onCh
   const s = t.dash.sport;
   const [rows, setRows] = useState<Exercise[]>([]);
   const [adding, setAdding] = useState<Block | null>(null);
+  const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState({ name: "", sets: "", reps: "", note: "" });
 
   const load = useCallback(() => {
@@ -32,18 +33,32 @@ export function SportProgram({ reloadKey, onChanged }: { reloadKey: number; onCh
   useEffect(load, [load, reloadKey]);
 
   const togglePause = async (e: Exercise) => {
-    if (!e.paused) {
-      const why = window.prompt(s.pausedWhy) ?? "";
-      await sportApi.pauseExercise(e.id, true, why.trim() || null);
-    } else {
-      await sportApi.pauseExercise(e.id, false);
-    }
+    // No reason is asked for or shown: "on hold" is the whole message, and why
+    // it is on hold is his business, not the interface's.
+    await sportApi.pauseExercise(e.id, !e.paused);
     load(); onChanged();
   };
 
   const remove = async (e: Exercise) => {
     if (!(await tgConfirm(s.removeConfirm.replace("{name}", e.name)))) return;
     await sportApi.deleteExercise(e.id);
+    load(); onChanged();
+  };
+
+  const beginEdit = (e: Exercise) => {
+    setAdding(null);
+    setEditing(e.id);
+    setDraft({ name: e.name, sets: e.sets ?? "", reps: e.reps ?? "", note: e.note ?? "" });
+  };
+
+  const saveEdit = async (e: Exercise) => {
+    if (!draft.name.trim()) return;
+    await sportApi.saveExercise({
+      id: e.id, block: e.block, name: draft.name.trim(),
+      sets: draft.sets.trim() || null, reps: draft.reps.trim() || null,
+      note: draft.note.trim() || null,
+    });
+    setEditing(null);
     load(); onChanged();
   };
 
@@ -77,7 +92,30 @@ export function SportProgram({ reloadKey, onChanged }: { reloadKey: number; onCh
             />
             <Card className="p-2">
               <div className="flex flex-col gap-0.5">
-                {list.map(e => (
+                {list.map(e => editing === e.id ? (
+                  <div key={e.id} className="py-2 px-2 rounded-xl bg-[var(--surface-2)] flex flex-col gap-1.5">
+                    <Input value={draft.name} className="h-9 text-sm"
+                           onChange={ev => setDraft(d => ({ ...d, name: ev.target.value }))} />
+                    <div className="flex items-center gap-2">
+                      <Input value={draft.sets} placeholder={s.exSets} className="w-20 h-9 text-sm"
+                             onChange={ev => setDraft(d => ({ ...d, sets: ev.target.value }))} />
+                      <Input value={draft.reps} placeholder={s.exReps} className="flex-1 h-9 text-sm"
+                             onChange={ev => setDraft(d => ({ ...d, reps: ev.target.value }))} />
+                    </div>
+                    <Input value={draft.note} placeholder={s.exNote} className="h-9 text-sm"
+                           onChange={ev => setDraft(d => ({ ...d, note: ev.target.value }))} />
+                    <div className="flex items-center gap-2 justify-end">
+                      <button onClick={() => setEditing(null)}
+                        className="text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer">
+                        {t.dash.food.cancel}
+                      </button>
+                      <button onClick={() => void saveEdit(e)} disabled={!draft.name.trim()}
+                        className="h-8 px-3 rounded-lg bg-[var(--foreground)] text-[var(--background)] text-[11px] font-semibold disabled:opacity-40 cursor-pointer">
+                        {s.saveBody}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                   <div key={e.id} className={["py-2 px-2 rounded-xl", e.paused ? "opacity-60" : ""].join(" ")}>
                     <div className="flex items-center gap-2">
                       <span className="text-sm flex-1 min-w-0 truncate">{e.name}</span>
@@ -91,6 +129,10 @@ export function SportProgram({ reloadKey, onChanged }: { reloadKey: number; onCh
                           {s.paused}
                         </span>
                       )}
+                      <button onClick={() => beginEdit(e)} aria-label={s.edit}
+                        className="shrink-0 p-1 -m-1 text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
                       <button onClick={() => void togglePause(e)}
                         aria-label={e.paused ? s.unpause : s.pause}
                         className="shrink-0 p-1 -m-1 text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer">
@@ -101,13 +143,8 @@ export function SportProgram({ reloadKey, onChanged }: { reloadKey: number; onCh
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    {(e.note || e.paused_reason) && (
-                      <div className={[
-                        "text-[10px] mt-0.5 leading-snug",
-                        e.paused_reason ? "text-amber-600 dark:text-amber-400" : "text-[var(--muted)]",
-                      ].join(" ")}>
-                        {e.paused_reason ?? e.note}
-                      </div>
+                    {e.note && (
+                      <div className="text-[10px] mt-0.5 leading-snug text-[var(--muted)]">{e.note}</div>
                     )}
                   </div>
                 ))}

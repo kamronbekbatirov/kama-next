@@ -10,7 +10,8 @@ import { useTimezone } from "../timezone";
 import { SectionHeader, Pill } from "../dashboard-ui";
 import { haptic, tgConfirm } from "@/lib/telegram-webapp";
 import { sportApi, fmtSet } from "./api";
-import type { Exercise, Workout } from "./types";
+import type { Block, Exercise, Workout } from "./types";
+import { isoWeekday } from "./week";
 
 /**
  * Today's session.
@@ -28,6 +29,7 @@ export function SportToday({ reloadKey, onChanged }: { reloadKey: number; onChan
 
   const [workout, setWorkout] = useState<Workout | null>(null);
   const [program, setProgram] = useState<Exercise[]>([]);
+  const [todayBlocks, setTodayBlocks] = useState<Block[]>([]);
   const [picked, setPicked] = useState<Exercise | null>(null);
   const [reps, setReps] = useState("");
   const [weight, setWeight] = useState("");
@@ -36,6 +38,11 @@ export function SportToday({ reloadKey, onChanged }: { reloadKey: number; onChan
   const load = useCallback(() => {
     sportApi.dayWorkout(day).then(w => setWorkout(w && "id" in w ? w : null)).catch(() => {});
     sportApi.program().then(p => { if (Array.isArray(p)) setProgram(p); }).catch(() => {});
+    // What today actually calls for, from the weekly routine — so the list to
+    // tap from is the day's programme rather than everything ever written down.
+    sportApi.weekday(isoWeekday(day))
+      .then(r => { if (Array.isArray(r)) setTodayBlocks(r.map(x => x.block)); })
+      .catch(() => {});
   }, [day]);
   useEffect(load, [load, reloadKey]);
 
@@ -58,14 +65,23 @@ export function SportToday({ reloadKey, onChanged }: { reloadKey: number; onChan
   };
 
   const kinds = ["gym", "home", "cardio"] as const;
-  const relevant = program.filter(e =>
-    workout?.kind === "home" ? ["home", "warmup", "stretch", "posture"].includes(e.block)
-                             : ["main", "warmup", "stretch", "posture", "cardio"].includes(e.block));
+  // Today's blocks first; if the weekday has none set, fall back to everything
+  // so an unplanned session is still loggable.
+  const relevant = todayBlocks.length
+    ? program.filter(e => todayBlocks.includes(e.block))
+    : program;
 
   if (!workout) {
     return (
       <Card className="p-5 text-center">
-        <div className="text-[11px] text-[var(--muted)] mb-3">{s.noWorkout}</div>
+        {todayBlocks.length > 0 && (
+          <div className="text-xs font-semibold mb-1.5">
+            {todayBlocks.map(b => s.blocks[b]).join(" · ")}
+          </div>
+        )}
+        <div className="text-[11px] text-[var(--muted)] mb-3">
+          {todayBlocks.length === 0 ? s.restDay : s.noWorkout}
+        </div>
         <div className="flex gap-1.5 justify-center flex-wrap">
           {kinds.map(k => (
             <Pill key={k} size="sm" onClick={() => void start(k)}>{s.kinds[k]}</Pill>
