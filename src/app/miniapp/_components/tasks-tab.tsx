@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { useLang } from "@/components/providers";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TrackerTab } from "./tracker";
+import { SportTab } from "./sport";
 import { FoodTab } from "./food";
 import {
   api, jPost, jPatch, jDel, useHashView,
@@ -107,7 +108,7 @@ export function TasksTab() {
       .catch(() => {});
   }, []);
 
-  const [pane, setPane] = useHashView("tasks", ["own", "tracker", "food"], "own");
+  const [pane, setPane] = useHashView("tasks", ["own", "tracker", "sport", "food"], "own");
   const { t: tt } = useLang();
 
   return (
@@ -116,10 +117,12 @@ export function TasksTab() {
         <TabsList className="self-start">
           <TabsTrigger value="own">{tt.dash.tabs.tasks}</TabsTrigger>
           <TabsTrigger value="tracker">{tt.dash.tabs.tracker}</TabsTrigger>
+          <TabsTrigger value="sport">{tt.dash.sport.title}</TabsTrigger>
           <TabsTrigger value="food">{tt.dash.food.title}</TabsTrigger>
         </TabsList>
         <TabsContent value="own"><OwnTasks /></TabsContent>
         <TabsContent value="tracker"><TrackerTab meId={meId} /></TabsContent>
+        <TabsContent value="sport"><SportTab /></TabsContent>
         <TabsContent value="food"><FoodTab /></TabsContent>
       </Tabs>
     </div>
