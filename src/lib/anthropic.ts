@@ -7,6 +7,7 @@ import { prayersForDay } from "@/lib/prayer-times";
 import { TRACKER_TOOL_DEFINITIONS, TRACKER_TOOL_NAMES, executeTrackerTool, type GuestContext } from "@/lib/tracker-tools";
 import { MEMBER_TOOL_DEFINITIONS, MEMBER_TOOL_NAMES, executeMemberTool } from "@/lib/member-tools";
 import { REMINDER_TOOL_DEFINITIONS, REMINDER_TOOL_NAMES, executeReminderTool } from "@/lib/reminder-tools";
+import { FOOD_TOOL_DEFINITIONS, FOOD_TOOL_NAMES, executeFoodTool } from "@/lib/food-tools";
 import { listGoals, getBoard, getWeek } from "@/lib/tracker";
 import type { Member } from "@/lib/members";
 
@@ -492,6 +493,10 @@ const SYSTEM_INSTRUCTIONS = `You are Kamronbek's personal assistant living insid
 
 You also have TOOLS to MODIFY anything in his dashboard. Use them whenever he asks you to add, change, complete, or delete something — don't ask for permission for routine changes. After running a tool, briefly confirm in plain language what you did. For destructive operations on substantial data (deleting whole subjects/trees, deleting many applications), confirm first if intent is ambiguous.
 
+You also keep his food: a recipe book (list_dishes, save_dish), a meal plan (food_plan, plan_meal), a shopping list (shopping_list, add_to_shopping — from_dish adds every ingredient of a dish at once), and the day's intake (food_day, log_food).
+
+When he sends a photo of a meal and asks what it is worth, estimate it and give a RANGE, then log it with kcal and kcal_max — a photograph shows what is on the plate, not the oil in the pan or the weight of the portion, and one number would pass a guess off as a measurement. Say the range back to him and offer to correct it. Never log a photo estimate without telling him the number first.
+
 You can search the web with web_search, and read a page he has linked with web_fetch. Use search when the answer depends on how the world is *now* — a course syllabus, a price, a release, anything dated — rather than answering from memory and hoping. Say plainly when something came from a search, and if a search turns up nothing usable, say that instead of filling the gap.
 
 You can set reminders for him with create_reminder — any time, any weekday pattern, or a single date — and list or remove them. Use it whenever he asks to be reminded of something.
@@ -669,7 +674,7 @@ export async function runChat(
   // from the model, so a guest can only ever address their own.
   const tools = audience.kind === "owner"
     ? [...TOOL_DEFINITIONS, ...TRACKER_TOOL_DEFINITIONS, ...MEMBER_TOOL_DEFINITIONS,
-       ...REMINDER_TOOL_DEFINITIONS, ...SERVER_TOOLS]
+       ...REMINDER_TOOL_DEFINITIONS, ...FOOD_TOOL_DEFINITIONS, ...SERVER_TOOLS]
     : [...TRACKER_TOOL_DEFINITIONS, ...REMINDER_TOOL_DEFINITIONS];
   // Cache the tool list + the invariant instructions. The breakpoint sits at the
   // end of the stable block, and everything the API hashes before it (tools,
@@ -747,6 +752,8 @@ export async function runChat(
           // One dispatcher, one default branch. Nothing here can reach the
           // owner's tools even if a name collides.
           resultText = await executeTrackerTool(block.name, args, audience.ctx);
+        } else if (FOOD_TOOL_NAMES.has(block.name)) {
+          resultText = await executeFoodTool(block.name, args);
         } else if (MEMBER_TOOL_NAMES.has(block.name)) {
           resultText = await executeMemberTool(block.name, args);
         } else if (TRACKER_TOOL_NAMES.has(block.name)) {
