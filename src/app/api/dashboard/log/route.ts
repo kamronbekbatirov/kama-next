@@ -18,17 +18,23 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     await auth();
-    const { date, visa_progress, what_worked, tomorrow_task, workout_pushups, workout_plank, workout_walk, notes } = await req.json();
+    const b = await req.json();
+    const { date, visa_progress, what_worked, tomorrow_task, notes, summary } = b;
     const d = date ?? await isoToday();
+
+    // The workout columns are no longer written from here — the Sport tab owns
+    // that now — but they are still read for the history that predates it, so
+    // COALESCE keeps the old numbers rather than zeroing them on every save.
     const rows = await query(
-      `INSERT INTO daily_log (date, visa_progress, what_worked, tomorrow_task, workout_pushups, workout_plank, workout_walk, notes, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+      `INSERT INTO daily_log (date, visa_progress, what_worked, tomorrow_task, notes, summary, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,NOW())
        ON CONFLICT (date) DO UPDATE SET
-         visa_progress=$2, what_worked=$3, tomorrow_task=$4,
-         workout_pushups=$5, workout_plank=$6, workout_walk=$7,
-         notes=$8, updated_at=NOW()
+         visa_progress=$2, what_worked=$3, tomorrow_task=$4, notes=$5,
+         summary = COALESCE($6::jsonb, daily_log.summary),
+         updated_at=NOW()
        RETURNING *`,
-      [d, visa_progress, what_worked, tomorrow_task, workout_pushups ?? 0, workout_plank ?? 0, workout_walk ?? 0, notes]
+      [d, visa_progress, what_worked, tomorrow_task, notes,
+       summary === undefined || summary === null ? null : JSON.stringify(summary)]
     );
     return Response.json(rows[0]);
   } catch (e) {

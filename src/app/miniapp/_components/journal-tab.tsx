@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft, FileText, Plus, Minus, Trash2, Save, Check, Loader2, Calendar, ChevronLeft,
   ChevronRight, Moon, Lock, LockOpen, ShieldCheck, Target, ListPlus, Dumbbell, Timer,
-  Footprints, Download, type LucideIcon,
+  Footprints, Download, type LucideIcon, ClipboardCheck
 } from "lucide-react";
+import { CloseDay } from "./journal/close-day";
+import { JournalTools } from "./journal/tools";
 import { NoteEditor } from "./note-editor";
 import { PinModal } from "./pin-modal";
 import { Card } from "@/components/ui/card";
@@ -23,7 +25,7 @@ import { useTimezone } from "./timezone";
 import { JobsTab } from "./jobs-tab";
 
 export function JournalTab() {
-  const [sub, setSub] = useHashView("journal", ["log", "notes", "jobs", "history"], "log");
+  const [sub, setSub] = useHashView("journal", ["log", "notes", "jobs", "history", "tools"], "log");
   const { t } = useLang();
   const d = t.dash.tabs;
 
@@ -35,12 +37,14 @@ export function JournalTab() {
           <TabsTrigger value="notes">{d.notes}</TabsTrigger>
           <TabsTrigger value="jobs">{d.jobs}</TabsTrigger>
           <TabsTrigger value="history">{d.history}</TabsTrigger>
+          <TabsTrigger value="tools">{t.dash.tools.transcribe}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="log"><LogContent /></TabsContent>
         <TabsContent value="notes"><NotesContent /></TabsContent>
         <TabsContent value="jobs"><JobsTab /></TabsContent>
         <TabsContent value="history"><HistoryContent /></TabsContent>
+        <TabsContent value="tools"><JournalTools /></TabsContent>
       </Tabs>
     </div>
   );
@@ -50,25 +54,24 @@ export function JournalTab() {
 // Everything the form edits. Kept as one flat list so a payload can be
 // snapshot-compared (JSON) to decide whether an autosave is even needed.
 const LOG_TEXT_FIELDS = ["what_worked", "tomorrow_task", "notes", "visa_progress"] as const;
-const LOG_NUM_FIELDS  = ["workout_pushups", "workout_plank", "workout_walk"] as const;
-type LogDraft = Record<(typeof LOG_TEXT_FIELDS)[number], string> &
-                Record<(typeof LOG_NUM_FIELDS)[number], number>;
+// The workout columns stay in the table for the history that predates the Sport
+// tab, but the log no longer writes them: training has its own tab now, and two
+// places to record the same number is one place too many.
+type LogDraft = Record<(typeof LOG_TEXT_FIELDS)[number], string>;
 
 const EMPTY_DRAFT: LogDraft = {
   what_worked: "", tomorrow_task: "", notes: "", visa_progress: "",
-  workout_pushups: 0, workout_plank: 0, workout_walk: 0,
 };
 
 function toDraft(row: Partial<DailyLog> | null | undefined): LogDraft {
   const out = { ...EMPTY_DRAFT };
   if (!row) return out;
   for (const f of LOG_TEXT_FIELDS) out[f] = (row[f] as string | null) ?? "";
-  for (const f of LOG_NUM_FIELDS)  out[f] = Number(row[f] ?? 0) || 0;
   return out;
 }
 
 function isBlank(dr: LogDraft): boolean {
-  return LOG_TEXT_FIELDS.every(f => !dr[f].trim()) && LOG_NUM_FIELDS.every(f => !dr[f]);
+  return LOG_TEXT_FIELDS.every(f => !dr[f].trim());
 }
 
 function LogContent() {
@@ -79,6 +82,7 @@ function LogContent() {
   const [draft, setDraft] = useState<LogDraft>(EMPTY_DRAFT);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "unsaved">("idle");
   // Yesterday's answer to "most important task for tomorrow" — i.e. today's brief.
+  const [closing, setClosing] = useState(false);
   const [carry, setCarry] = useState<{ date: string; text: string } | null>(null);
 
   // Refs so the debounced save always writes the latest values to the date they
@@ -212,28 +216,6 @@ function LogContent() {
         </Card>
       </section>
 
-      <section>
-        <SectionHeader eyebrow={d.workout} />
-        <Card className="p-2">
-          {([
-            { key: "workout_pushups" as const, label: d.pushups, icon: Dumbbell,   step: 5,  unit: "" },
-            { key: "workout_plank"   as const, label: d.plank,   icon: Timer,      step: 10, unit: "" },
-            { key: "workout_walk"    as const, label: d.walk,    icon: Footprints, step: 5,  unit: "" },
-          ]).map((row, idx) => (
-            <CounterRow
-              key={row.key}
-              icon={row.icon}
-              label={row.label}
-              value={draft[row.key]}
-              step={row.step}
-              divider={idx > 0}
-              onChange={v => set(row.key, v)}
-              onCommit={() => void flush()}
-            />
-          ))}
-        </Card>
-      </section>
-
       <button
         onClick={() => void flush()}
         disabled={status === "saving"}
@@ -247,6 +229,29 @@ function LogContent() {
         {status === "saved" ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
         {status === "saving" ? d.saving : status === "saved" ? d.saved : d.save}
       </button>
+
+      {/* Autosave keeps the draft safe; this closes the day — it gathers what
+          was actually done and attaches it to the log, after showing it. */}
+      <button
+        onClick={() => setClosing(true)}
+        className="w-full h-11 rounded-2xl border border-[var(--card-border)] text-sm font-semibold hover:bg-[var(--muted-bg)] transition-all flex items-center justify-center gap-2 cursor-pointer"
+      >
+        <ClipboardCheck className="h-4 w-4" />
+        {d.closeDay}
+      </button>
+
+      {closing && (
+        <CloseDay
+          date={date}
+          onClose={() => setClosing(false)}
+          onSaved={async (summary) => {
+            await jPost("/api/dashboard/log", { date, ...draftRef.current, summary });
+            savedRef.current = JSON.stringify(draftRef.current);
+            setStatus("saved");
+            setClosing(false);
+          }}
+        />
+      )}
 
       <ExportLogs today={td} labels={d} />
 

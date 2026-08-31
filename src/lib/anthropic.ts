@@ -4,6 +4,8 @@ import { TOOL_DEFINITIONS, executeTool } from "@/lib/anthropic-tools";
 import { getServerStatus, type ServerStatus } from "@/lib/server-status";
 import { getTimezone, isoDateIn, isoToday } from "@/lib/timezone";
 import { prayersForDay } from "@/lib/prayer-times";
+import { getWorkoutForDay } from "@/lib/sport";
+import { getDay, dayTotal } from "@/lib/food";
 import { TRACKER_TOOL_DEFINITIONS, TRACKER_TOOL_NAMES, executeTrackerTool, type GuestContext } from "@/lib/tracker-tools";
 import { MEMBER_TOOL_DEFINITIONS, MEMBER_TOOL_NAMES, executeMemberTool } from "@/lib/member-tools";
 import { REMINDER_TOOL_DEFINITIONS, REMINDER_TOOL_NAMES, executeReminderTool } from "@/lib/reminder-tools";
@@ -68,6 +70,8 @@ interface DashboardSnapshot {
   schedule: { id: string; start_min: number; end_min: number; label: string; icon: string }[];
   prayersToday: Record<string, boolean>;
   prayerTimes: Record<string, string> | null;
+  todayTraining: string | null;
+  todayFood: string | null;
   habitsList: { id: string; label: string; builtin: boolean; done: boolean }[];
   todos: { id: number; text: string; description: string | null; category: string; priority: string; status: string; created_at: string; due_at: string | null }[];
   recentlyCompletedTodos: { id: number; text: string; category: string; done_at: string }[];
@@ -199,6 +203,19 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
 
   // Computed, not stored — and best-effort, like the server and inbox sections:
   // a bad coordinate should cost the assistant its prayer times, not the chat.
+  // Today's training and intake, so the assistant can answer "how is my day
+  // going" without three tool calls. Best-effort, like the rest of the extras.
+  const todayTraining = await getWorkoutForDay(dt)
+    .then(w => w && w.sets.length
+      ? `${w.kind}: ${w.sets.map(x => `${x.name} ${x.weight_kg ? `${x.weight_kg}kg×${x.reps}` : x.seconds ? `${x.seconds}s` : x.reps}`).join(", ")}`
+      : null)
+    .catch(() => null);
+  const todayFood = await Promise.all([getDay(dt), dayTotal(dt)])
+    .then(([entries, total]) => entries.length
+      ? `${entries.map(e => e.name).join(", ")} — ${total.min === total.max ? total.min : `${total.min}-${total.max}`} kcal`
+      : null)
+    .catch(() => null);
+
   const prayerTimes = await prayersForDay(dt, tz)
     .then(x => Object.fromEntries(Object.entries(x.times).map(([k, v]) => [k, v.hhmm])))
     .catch(() => null);
@@ -221,6 +238,8 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     schedule,
     prayersToday,
     prayerTimes,
+    todayTraining,
+    todayFood,
     habitsList,
     todos,
     recentlyCompletedTodos,
@@ -263,6 +282,8 @@ ${snap.schedule.length === 0 ? "(empty)" : snap.schedule.map(b =>
 - Prayers (${prayersDone}/5): ${PRAYER_IDS.map(p =>
     `${p} ${snap.prayerTimes?.[p] ?? "?"}=${mark(snap.prayersToday[p])}`).join(" ")}${
   snap.prayerTimes ? `\n- Sunrise ${snap.prayerTimes.sunrise}. Prayer times are computed for his location and change every day — never quote one from memory or from an older turn.` : ""}
+- Training today: ${snap.todayTraining ?? "nothing logged"}
+- Food today: ${snap.todayFood ?? "nothing logged"}
 - Tracked habits (${habitsDone}/${tracked}): ${tracked === 0
     ? "(none configured)"
     : snap.habitsList.map(h => `${h.label}[${h.id}${h.builtin ? "*" : ""}]=${mark(h.done)}`).join(", ")}

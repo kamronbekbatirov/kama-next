@@ -377,9 +377,6 @@ export const TOOL_DEFINITIONS: Tool[] = [
         what_worked: { type: "string" },
         tomorrow_task: { type: "string" },
         visa_progress: { type: "string" },
-        workout_pushups: { type: "integer" },
-        workout_plank: { type: "integer" },
-        workout_walk: { type: "integer" },
         notes: { type: "string" },
       },
     },
@@ -1173,8 +1170,7 @@ export async function executeTool(name: string, input: Input): Promise<string> {
         // COALESCE above sees a real 0 and wipes the numbers already logged for
         // that day. COALESCE in VALUES keeps a fresh row at 0.
         [date, asStr(input.what_worked), asStr(input.tomorrow_task), asStr(input.visa_progress),
-         asInt(input.workout_pushups), asInt(input.workout_plank),
-         asInt(input.workout_walk), asStr(input.notes)]
+         null, null, null, asStr(input.notes)]
       );
       return `Saved journal log for ${date}`;
     }
