@@ -9,7 +9,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Card } from "@/components/ui/card";
 import { useLang } from "@/components/providers";
 import { SectionHeader } from "./dashboard-ui";
-import { MembersSection } from "./settings-members";
 import { PinModal } from "./pin-modal";
 import { useTimezone, allTimeZones } from "./timezone";
 import { Input } from "@/components/ui/input";
@@ -422,7 +421,6 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
           <TimezoneSection />
 
           {role === "owner" && <NoteLockSection open={open} />}
-        {role === "owner" && <MembersSection open={open} />}
 
           <SessionsSection open={open} />
 

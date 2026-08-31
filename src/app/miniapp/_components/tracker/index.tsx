@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArchiveRestore, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { ArchiveRestore, ChevronDown, ChevronRight, Settings, Trash2 } from "lucide-react";
 import { tgConfirm } from "@/lib/telegram-webapp";
 import { Card } from "@/components/ui/card";
 import { useLang } from "@/components/providers";
@@ -9,6 +9,7 @@ import { GroupPane } from "./group";
 import { MinePane } from "./mine";
 import { GoalForm } from "./goal-form";
 import { trackerApi } from "./api";
+import { MembersSection } from "../settings-members";
 import type { Goal } from "./types";
 
 /**
@@ -30,6 +31,17 @@ export function TrackerTab({ meId = null }: { meId?: string | null }) {
 
   const [archived, setArchived] = useState<Goal[]>([]);
   const [showArchive, setShowArchive] = useState(false);
+  // Who can see the board belongs next to the board, not in the app-wide
+  // settings sheet: it is a property of this feature, and the only people who
+  // ever look for it are looking at the tracker when they do.
+  const [showAccess, setShowAccess] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/me").then(r => r.json())
+      .then(d => setIsOwner(d?.role === "owner"))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     trackerApi.listArchived()
@@ -56,6 +68,19 @@ export function TrackerTab({ meId = null }: { meId?: string | null }) {
 
   return (
     <div className="flex flex-col gap-5 pt-2 animate-fade-in">
+      {isOwner && (
+        <div className="flex justify-end -mb-2">
+          <button
+            onClick={() => setShowAccess(v => !v)}
+            className="inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+          >
+            <Settings className="h-3.5 w-3.5" /> {x.access}
+          </button>
+        </div>
+      )}
+
+      {isOwner && showAccess && <MembersSection open={showAccess} />}
+
       <MinePane onNew={() => setForming(true)} onEdit={setEditing} reloadKey={reload} onChanged={bump} />
 
       <GroupPane key={reload} meId={meId} />
